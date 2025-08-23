@@ -1,3 +1,4 @@
+import shutil
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
@@ -11,8 +12,9 @@ import json
 from typing import Dict, Optional
 import uvicorn
 from huggingface_hub import login
+from pathlib import Path
 
-load_dotenv(dotenv_path=".env", verbose=True)
+load_dotenv()
 
 app = FastAPI(title="AI Video Generator API")
 
@@ -51,15 +53,12 @@ async def serve_js():
 @app.post("/api/generate-video", response_model=Video_Job_Created_Response)
 async def generate_video(request: Video_Request):
     """Start the Video Generation Process."""
-    
-    # If the Prompt is empty
     if not request.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt is required")
     
-    # Create a unique job id
     job_id = str(uuid.uuid4())
     
-    # Initialize Status
+    # Initialize Status - FIXED
     VIDEO_GENERATION_STATUS[job_id] = {
         "status": "processing",
         "message": "Video generation has started",
@@ -67,7 +66,6 @@ async def generate_video(request: Video_Request):
         "prompt": request.prompt
     }
     
-    # Start a Background Task
     asyncio.create_task(video_generation_process(job_id, request.prompt))
     
     return Video_Job_Created_Response(
@@ -82,7 +80,6 @@ async def get_status(job_id: str):
     if job_id not in VIDEO_GENERATION_STATUS:
         raise HTTPException(status_code=404, detail="Job ID not found")
     
-    # Retrieve the stored job details
     job_data = VIDEO_GENERATION_STATUS[job_id]
     
     return Status_Response(
@@ -93,66 +90,112 @@ async def get_status(job_id: str):
     )
 
 async def video_generation_process(job_id: str, prompt: str):
-    """Generate Video"""
+    """Generate Video with mock fallback for quota limits"""
     try:
+        env_file = Path(__file__).parent / '.env'
+        load_dotenv(dotenv_path=env_file)
         hf_token = os.getenv("HUGGINGFACE_TOKEN")
+        login(hf_token)
+        
         if not hf_token:
             raise Exception("HuggingFace token not found in .env file")
-        # Update the message
-        VIDEO_GENERATION_STATUS[job_id]["message"] = "Connected to the ModelScope AI model"
         
-        # ModelScope Model
-        client = Client("ali-vilab/text-to-video-synthesis", hf_token=hf_token)
+        VIDEO_GENERATION_STATUS[job_id]["message"] = "🤖 Connecting to AI model..."
         
-        VIDEO_GENERATION_STATUS[job_id]["message"] = f"Generating video for: '{prompt}'"
-        
+        # Hugging Face Model
+        client = Client("hysts/zeroscope-v2")
         result = client.predict(
             prompt=prompt,
-            api_name="/predict"
+            seed=0,
+            num_frames=24,
+            num_inference_steps=25,
+            api_name="/run"
         )
         
-        # Update Status with Success
-        VIDEO_GENERATION_STATUS[job_id] = {
-            "status": "completed",
-            "message": "Video generated Successfully",
-            "video_url": f"/api/download/{job_id}",
-            "video_path": result,
-            "prompt": prompt
-        }
+        # Real generation succeeded
+        if isinstance(result, dict) and 'video' in result:
+            temp_video_path = result['video']
+        else:
+            temp_video_path = result
+        
+        videos_dir = "./videos"
+        os.makedirs(videos_dir, exist_ok=True)
+        permanent_video_path = f"{videos_dir}/{job_id}.mp4"
+        
+        if os.path.exists(temp_video_path):
+            shutil.copy2(temp_video_path, permanent_video_path)
+            message = "Video generated successfully!"
+        else:
+            raise Exception(f"Generated video not found at: {temp_video_path}")
         
     except Exception as e:
+        # Check if it's a quota error
+        if "exceeded your GPU quota" in str(e) or "quota" in str(e).lower():
+            
+            # mock video 
+            videos_dir = "./videos"
+            mock_video_path = f"{videos_dir}/mock_video.mp4"
+            
+            if os.path.exists(mock_video_path):
+                VIDEO_GENERATION_STATUS[job_id] = {
+                    "status": "completed",
+                    "message": "Demo: Using pre-generated video due to API quota limits",
+                    "video_url": f"/api/download/{job_id}",
+                    "video_path": mock_video_path,
+                    "prompt": prompt
+                }
+                return
+        
+        # Regular error handling
         VIDEO_GENERATION_STATUS[job_id] = {
             "status": "error",
-            "message": f"Error Occurred: {str(e)}",
+            "message": f"Error: {str(e)}",
             "video_url": None,
             "prompt": prompt
         }
+        return
+    
+    # Success with real generation
+    VIDEO_GENERATION_STATUS[job_id] = {
+        "status": "completed",
+        "message": message,
+        "video_url": f"/api/download/{job_id}",
+        "video_path": permanent_video_path,
+        "prompt": prompt
+    }
+
 
 @app.get("/api/download/{job_id}")
 async def download_video(job_id: str):
-    """Serve the Video File"""
+    """Serve the Video File (real or mock)"""
+    
+    # Ensure the job ID exists
     if job_id not in VIDEO_GENERATION_STATUS:
         raise HTTPException(status_code=404, detail="Job ID not found")
     
     job_data = VIDEO_GENERATION_STATUS[job_id]
     
+    # Ensure the job has completed successfully
     if job_data["status"] != "completed":
         raise HTTPException(status_code=400, detail="Video not ready for download")
     
     video_path = job_data.get("video_path")
-    if not video_path:
-        raise HTTPException(status_code=500, detail="Video path not found")
+
+    # Ensure the video file path is valid and exists
+    if not video_path or not os.path.exists(video_path):
+        raise HTTPException(status_code=404, detail="Video file not found")
     
+    # Serve the file as an MP4 with streaming and range support
     return FileResponse(
         video_path,
         media_type="video/mp4",
-        filename=f"{job_id}.mp4"
+        headers={
+            "Content-Disposition": f"inline; filename={job_id}.mp4", # Display inline with filename
+            "Accept-Ranges": "bytes" # Allow Partial Requests
+        }
     )
 
-@app.get("/api/health")
-async def health_check():
-    return {"status": "Good", "message": "The model is running"}
-
 if __name__ == "__main__":
+    """Run the FastAPI app with Uvicorn"""
     port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port,timeout_keep_alive=900,timeout_graceful_shutdown=30)
