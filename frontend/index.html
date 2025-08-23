@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Video Generator</title>
+    <link rel="stylesheet" href="style.css">\
+    <script src="script.js" defer></script>
+</head>
+
+<body>
+    <div class="container">
+        <header class="hero-section">
+            <h1>AI Video Generator</h1>
+        </header>
+
+        <main class="main-content">
+            <div class="input-section">
+                <div class="form-group">
+                    <label for="promptInput">Enter your video prompt:</label>
+                    <textarea 
+                        id="promptInput" 
+                        placeholder="Describe the video you want to generate... (e.g., 'A cat playing with a ball of yarn')"
+                        rows="3"
+                    ></textarea>
+                </div>
+                
+                <button id="generateBtn" class="generate-btn">
+                    <span class="btn-text">🎬 Generate Video</span>
+                    <span class="btn-loader" style="display: none;">
+                        <span class="spinner"></span> Generating...
+                    </span>
+                </button>
+            </div>
+
+
+            <div id="statusSection" class="status-section" style="display: none;">
+                <div class="status-card">
+                    <h3>Generation Status</h3>
+                    <div id="statusMessage" class="status-message">Ready to generate</div>
+                    <div id="progressBar" class="progress-bar">
+                        <div id="progressFill" class="progress-fill"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="videoSection" class="video-section" style="display: none;">
+                <div class="video-card">
+                    <h3>Generated Video</h3>
+                    <div class="video-container">
+                        <video id="generatedVideo" controls width="100%">
+                            Your browser does not support the video tag.
+                        </video>
+                    </div>
+                    <div class="video-actions">
+                        <button id="downloadBtn" class="download-btn">
+                            Download Video
+                        </button>
+                        <button id="generateNewBtn" class="secondary-btn">
+                            Generate New Video
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    
+</body>
+</html>
