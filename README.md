@@ -9,7 +9,7 @@
 
 ## Overview
 
-The **Video Generation Web App** enables users to generate short videos from text prompts using the state-of-the-art [Zeroscope-v2](https://huggingface.co/hysts/zeroscope-v2) model on HuggingFace through **Gradio’s Python client**.  
+The **Video Generation Web App** enables users to generate short videos from text prompts using the state-of-the-art [Zeroscope-v2](https://huggingface.co/spaces/hysts/zeroscope-v2) model on HuggingFace through **Gradio’s Python client**.  
 
 With a modern frontend, asynchronous FastAPI backend, job queue management, and graceful fallbacks for quota limits, this project is built for both **demonstration** and **production-ready** environments.
 
@@ -153,6 +153,7 @@ When HuggingFace GPU quotas are exhausted, the backend serves a sample video wit
 ## Credits
 
 Made by Kushal Panchali
+
 
 
 
