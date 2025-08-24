@@ -110,9 +110,6 @@ pip                            # Package manager
     python main.py
     ```
 
-6. **Access:**  
-   Open [http://localhost:8000](http://localhost:8000) in your browser.
-
 ***
 
 ## Deployment
@@ -145,31 +142,12 @@ When HuggingFace GPU quotas are exhausted, the backend serves a sample video wit
 - **Backend:** Python 3.8+, FastAPI, Uvicorn, python-dotenv
 - **Front-end:** HTML, CSS, JavaScript (no frontend framework)
 - **Model API:** HuggingFace Zeroscope-v2 via gradio_client
-- **Storage:** Local `/videos` directory
 
 ***
 
-## License
-
-MIT
-
-***
 
 ## Credits
 
 Made by Kushal Panchali
 
-***
 
-*Minimal. Robust. Real-world ready.*
-
-***
-
-You can directly copy and adapt this. Place your architecture image as `VGWA_architecture.jpg` in the repo for best rendering on GitHub. Adjust any repo/user details or add further deployment/cloud/usage notes as needed!
-
-[1](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/85803672/42540aad-9dd6-4e70-a356-ca1726d2338f/script.js)
-[2](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/85803672/bd5601fc-894e-4e97-ac88-25a5aa906dd8/main.py)
-[3](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/images/85803672/6453c7e6-8596-4a9c-82ee-85e9fd724a38/VGWA_architecture.jpg)
-[4](https://img.shields.io/badge/python-v3.8+-blue.svg)
-[5](https://img.shields.io/badge/flask-v2.0+-green.svg)
-[6](https://img.shields.io/badge/google--api--python--clien)
