@@ -1,74 +1,78 @@
-***
-
 # Video Generation Web App
 
-![Python](https://img.shields.io/badge/pythonapigginggenerator with async FastAPI backend, robust HuggingFace integration, and a clean browser interface.
+![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-async%20API-green)
+![HuggingFace](https://img.shields.io/badge/HuggingFace-Zeroscope--v2-orange)
 
-***
+
+---
 
 ## Overview
 
-The Video Generation Web App enables users to generate short videos from prompts using the state-of-the-art [Zeroscope-v2](https://huggingface.co/hysts/zeroscope-v2) model on HuggingFace through Gradio’s Python client. With clear job tracking, robust file serving, and graceful fallback for quota/resource limits, it is designed for both demonstration and production environments.
+The **Video Generation Web App** enables users to generate short videos from text prompts using the state-of-the-art [Zeroscope-v2](https://huggingface.co/hysts/zeroscope-v2) model on HuggingFace through **Gradio’s Python client**.  
 
-***
+With a modern frontend, asynchronous FastAPI backend, job queue management, and graceful fallbacks for quota limits, this project is built for both **demonstration** and **production-ready** environments.
 
+---
 ## Features
 
-- **Modern Responsive Frontend:** Pure HTML/CSS/JS, designed minimal and dark/light switch friendly
-- **Async FastAPI Backend:** Handles video jobs, status polling, and secure downloads
-- **Job Queue & Status:** Real-time job management and progress feedback for users
-- **Video Storage:** Organized `/videos` dir for generated and placeholder outputs
-- **Resource Fallback:** Switches to a mock video seamlessly if API quota is hit
-- **Deployment Ready:** Secure secrets, `.env` never in git, deploys easily on Render, Railway, etc.
+- **Responsive Frontend** – Pure HTML/CSS/JS, dark/light switch friendly  
+- **Async FastAPI Backend** – Handles job creation, status polling, and video streaming  
+- **Job Queue & Tracking** – Real-time updates on video generation progress  
+- **Organized Video Storage** – Clean `/videos` directory for generated & fallback videos  
+- **Quota Fallback** – Serves a mock video seamlessly if HuggingFace API limits are hit  
+- **Deployment Ready** – Secure `.env`, compatible with Render, Railway, etc.  
 
-***
+---
 
 ## Architecture
 
 ![Architecture](assets/VGWA_architecture.svg)
 
-
-***
+---
 
 ## Model Choice
 
-- **Model Used:** `hysts/zeroscope-v2` (HuggingFace Space)
-- **Why This Model?**  
-  Zeroscope-v2 is a leading open-source text-to-video model hosted on HuggingFace.  
-  - It accepts descriptive prompts and returns authentic, short videos.
-  - Public API endpoints via `gradio_client` enable stable, fast integration and error handling.
-  - The model is supported and well-documented for both research and production scenarios.
+- **Model Used:** `hysts/zeroscope-v2` (HuggingFace Space)  
+- **Why this model?**  
+  - Open-source, widely supported, and optimized for **short text-to-video generation**  
+  - Accepts descriptive prompts → returns authentic short videos  
+  - Stable API integration via `gradio_client`  
+  - Actively maintained and documented for **research + production use cases**  
 
-***
+---
 
 ## API & Code Structure
 
 | Endpoint                  | Method | Purpose                                 |
 |---------------------------|--------|-----------------------------------------|
-| `/`                       | GET    | Returns index.html                      |
-| `/style.css`              | GET    | CSS file for UI                         |
-| `/script.js`              | GET    | Minimalist frontend logic               |
-| `/api/generate-video`     | POST   | Start video gen job, returns `job_id`   |
-| `/api/status/{job_id}`    | GET    | Polls for job status/progress           |
-| `/api/download/{job_id}`  | GET    | Streams finished video file to browser  |
+| `/`                       | GET    | Serves `index.html`                     |
+| `/style.css`              | GET    | Stylesheet for UI                       |
+| `/script.js`              | GET    | Frontend JS logic                       |
+| `/api/generate-video`     | POST   | Start video generation, returns `job_id`|
+| `/api/status/{job_id}`    | GET    | Poll for job status/progress            |
+| `/api/download/{job_id}`  | GET    | Streams generated video file            |
 
-- **Backend (`main.py`)**: Job manager, async task system, API endpoints, secure file handling, HuggingFace integration.
-- **Frontend**: Plain HTML + CSS (Courier New), JS for async polling and download.
+**Backend (`main.py`)**  
+- Job manager, async task system, HuggingFace API integration, and file serving  
 
-***
+**Frontend**  
+- Plain HTML + CSS + JS (Courier New aesthetic)  
+- Async polling & video download logic  
+
+---
 
 ## Environment Variables & Security
 
-**Keep secrets safe:**  
-- `.env` is **excluded** from git (`.gitignore`).
-- Locally, credentials (such as `HUGGINGFACE_TOKEN`) are loaded via python-dotenv.
-- **Production:** Set environment variables using your deploy platform’s dashboard for secure usage.
+Secrets are **never committed**.  
 
-**Sample `.env` (NOT in repo):**
-```
+- `.env` is excluded via `.gitignore`  
+- Uses `python-dotenv` locally  
+- On production (Render, Railway, etc.), set environment variables in dashboard  
+
+**Example `.env` (not in repo):**
+```env
 HUGGINGFACE_TOKEN=hf_XXXXXXXXXXXXXXXX
-```
-
 ***
 
 ## Local Development
@@ -149,5 +153,6 @@ When HuggingFace GPU quotas are exhausted, the backend serves a sample video wit
 ## Credits
 
 Made by Kushal Panchali
+
 
 
