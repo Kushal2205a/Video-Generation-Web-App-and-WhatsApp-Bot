@@ -239,7 +239,7 @@ def handle_whatsapp_command(command: str, user_phone: str) -> str:
 **Tips:**
 • Be descriptive (min 5 words)
 • Include actions, settings, objects
-• Videos take 15-30 seconds to generate"""
+• Videos take around 3 minutes to generate"""
     
     elif command == '/status':
         redis_status = "✅ Connected" if redis_client else "❌ Disconnected"
@@ -265,7 +265,7 @@ Available commands:
 Example: /generate A cat dancing"""
 
 def send_whatsapp_message(to: str, body: str, media_url: str = None):
-    """Send WhatsApp message via Twilio"""
+    """Send WhatsApp message with optional media attachment"""
     try:
         message_data = {
             'from_': TWILIO_WHATSAPP_FROM,
@@ -273,8 +273,9 @@ def send_whatsapp_message(to: str, body: str, media_url: str = None):
             'to': to
         }
         
+        # Add media URL if provided
         if media_url:
-            message_data['media_url'] = [media_url]
+            message_data['media_url'] = [media_url]  # Must be a list
         
         message = twilio_client.messages.create(**message_data)
         print(f"📤 WhatsApp message sent to {to}: {message.sid}")
@@ -282,6 +283,7 @@ def send_whatsapp_message(to: str, body: str, media_url: str = None):
         
     except Exception as e:
         print(f"❌ Failed to send WhatsApp message: {e}")
+        return None
 
 async def handle_whatsapp_video_generation(prompt: str, user_phone: str):
     """Handle video generation workflow for WhatsApp"""
@@ -289,7 +291,7 @@ async def handle_whatsapp_video_generation(prompt: str, user_phone: str):
         # Send acknowledgment
         send_whatsapp_message(
             user_phone, 
-            f"🎬 Generating your video: '{prompt}'\n\nThis usually takes 15-30 seconds..."
+            f"🎬 Generating your video: '{prompt}'\n\nThis usually takes around 3 minutes..."
         )
         
         # Create job
@@ -313,19 +315,10 @@ async def handle_whatsapp_video_generation(prompt: str, user_phone: str):
         # Check final status and send result
         final_job_data = get_job_data(job_id)
         if final_job_data and final_job_data["status"] == "completed":
-            video_url = f" https://bdcc07030d0e.ngrok-free.app/api/download/{job_id}"
+            PUBLIC_BASE_URL = "https://bdcc07030d0e.ngrok-free.app"
+            video_url = f"{PUBLIC_BASE_URL}/api/download/{job_id}"
             send_whatsapp_message(user_phone, "Here's your video:", media_url=video_url)
-            
-            
-            success_msg = f"""✅ Your AI video is ready!
-
-🎥 Generated for: "{prompt}"
-
-Here's your video: {video_url}"""
-            
-            send_whatsapp_message(user_phone, success_msg)
-            # Uncomment to send actual video file:
-            # send_whatsapp_message(user_phone, "🎬 Here's your video:", media_url=video_url)
+        
         else:
             send_whatsapp_message(
                 user_phone,
@@ -403,10 +396,10 @@ async def video_generation_process(job_id: str, prompt: str, user_phone: str = N
         payload = {
             "model": "viduq1",
             "prompt": prompt,
-            "duration": 5,
+            "duration": 4,
             "aspect_ratio": "16:9",
-            "resolution": "1080p",
-            "movement_amplitude": "auto"
+            "resolution": "480p",
+            "movement_amplitude": "small"
         }
         
         print("📡 Sending request to Vidu API...")
@@ -441,17 +434,17 @@ async def video_generation_process(job_id: str, prompt: str, user_phone: str = N
                 })
                 return
         
-        # If we get here, something failed
+    
         raise Exception(f"Vidu API failed: {response.status_code} - {response.text}")
         
     except Exception as vidu_error:
         print(f"⚠️ Vidu API failed: {vidu_error}")
         
-        # ✅ Safe to use task_id here since it's initialized
+    
         if task_id:
             print(f"🔄 Failed task ID: {task_id}")
         
-        # Fallback to HuggingFace
+        
         print("📼 Using HuggingFace fallback")
         await use_huggingface_fallback(job_id, prompt)
 
@@ -459,7 +452,7 @@ async def poll_vidu_task(task_id: str, job_id: str, api_key: str, base_url: str)
     """Poll Vidu task until video is ready"""
     headers = {"Authorization": f"Token {api_key}"}
 
-    for attempt in range(120):  # up to 10 minutes
+    for attempt in range(120):  
         try:
             response = requests.get(
                 f"{base_url}/ent/v2/tasks/{task_id}/creations",
@@ -538,7 +531,7 @@ async def use_huggingface_fallback(job_id: str, prompt: str):
             api_name="/run"
         )
         
-        # Handle result (your existing logic)
+        
         if isinstance(result, dict) and 'video' in result:
             temp_video_path = result['video']
         else:
@@ -593,5 +586,5 @@ async def use_mock_video_fallback(job_id: str, prompt: str):
 if __name__ == "__main__":
     """Run the FastAPI app with Uvicorn"""
     port = int(os.getenv("PORT", 8000))
-    print(f"🚀 Starting AI Video Generator with WhatsApp Bot on port {port}")
+    print(f"Starting AI Video Generator with WhatsApp Bot on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port, timeout_keep_alive=900, timeout_graceful_shutdown=30)
