@@ -46,6 +46,8 @@ def enhance_prompt_free(prompt: str) -> str:
 
 def store_user_state(user_phone: str, state: str, data: dict):
     """Store user conversation state"""
+    if not redis_client:
+        return 
     state_key = f"user_state:{user_phone}"
     state_data = {
         "state": state,
@@ -132,6 +134,8 @@ def comprehensive_content_filter(prompt: str) -> tuple[bool, str]:
     
 def is_user_rate_limited(user_phone: str) -> bool:
     """Checks if user has exceeded message rate limit"""
+    if not redis_client:
+        return False  # No rate limiting if Redis unavailable
     key = f"rate_limit:{user_phone}"
     current_count = redis_client.get(key)
     
