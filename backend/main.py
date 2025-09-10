@@ -17,7 +17,7 @@ import requests
 from twilio.rest import Client
 from datetime import datetime
 import re 
-
+from fastapi.staticfiles import StaticFiles
 load_dotenv()
 
 app = FastAPI(title="AI Video Generator API")
@@ -203,11 +203,13 @@ class Status_Response(BaseModel):
     video_url: Optional[str] = None
 
 # ========== EXISTING WEB APP ROUTES (UNCHANGED) ==========
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/", response_class=HTMLResponse)
 async def serve_html():
     """Serves the HTML page"""
     try:
-        with open("../frontend/index.html", "r") as f:
+        with open("static/index.html", "r") as f:
             return HTMLResponse(content=f.read())
     except FileNotFoundError:
         return HTMLResponse("<h1>AI Video Generator</h1><p>Frontend not available</p>")
@@ -215,12 +217,12 @@ async def serve_html():
 @app.get("/style.css")
 async def serve_css():
     """Serves the CSS file"""
-    return FileResponse("../frontend/style.css", media_type="text/css")
+    return FileResponse("static/style.css", media_type="text/css")
 
 @app.get("/script.js")
 async def serve_js():
     """Serves the Javascript file"""
-    return FileResponse("../frontend/script.js", media_type="text/javascript")
+    return FileResponse("static/script.js", media_type="text/javascript")
 
 @app.post("/api/generate-video", response_model=Video_Job_Created_Response)
 async def generate_video(request: Video_Request):
@@ -573,7 +575,7 @@ async def handle_whatsapp_video_generation(prompt: str, user_phone: str):
         # Check final status and send result
         final_job_data = get_job_data(job_id)
         if final_job_data and final_job_data["status"] == "completed":
-            PUBLIC_BASE_URL = "https://d2a0b53073b1.ngrok-free.app"
+            PUBLIC_BASE_URL = "https://video-generation-web-app-production.up.railway.app"
             video_url = f"{PUBLIC_BASE_URL}/api/download/{job_id}"
             send_whatsapp_message(user_phone, "Here's your video:", media_url=video_url)
         
@@ -683,7 +685,7 @@ async def video_generation_process(job_id: str, prompt: str, user_phone: str = N
             video_path = await poll_vidu_task(task_id, job_id, vidu_api_key, vidu_base_url)
             
             if video_path:
-                PUBLIC_BASE_URL = "https://d2a0b53073b1.ngrok-free.app"
+                PUBLIC_BASE_URL = "https://video-generation-web-app-production.up.railway.app"
                 update_job_data(job_id, {
                     "status": "completed",
                     "message": "✅ Video generated successfully!",
