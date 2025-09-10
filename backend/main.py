@@ -320,6 +320,47 @@ async def whatsapp_webhook(
         print(f"Rate limited user: {user_phone}")
         return {"status": "rate_limited"}
     
+    if message_text.lower() == '/credits':
+        remaining, package_info = await get_vidu_credits()
+        
+        if remaining is not None and package_info:
+            videos_left = calculate_videos_remaining(remaining)
+            
+            # Build package details
+            package_details = ""
+            for pkg in package_info:
+                package_details += f"\n• **{pkg['type'].title()} Package:** {pkg['remaining']} credits"
+                if pkg['concurrency_limit'] > 0:
+                    package_details += f"\n  - Concurrent limit: {pkg['concurrency_limit']}"
+                    package_details += f"\n  - Currently using: {pkg['current_concurrency']}"
+                    if pkg['queue_count'] > 0:
+                        package_details += f"\n  - In queue: {pkg['queue_count']}"
+            
+            credits_message = f"""💳 **Vidu API Credits Status**
+
+                                🎬 **Total Remaining Credits:** {remaining}
+
+                                📦 **Package Details:**{package_details}
+
+                                **🎥 Videos You Can Generate:**
+                                • **4-second videos:** {videos_left['No of credits left']} videos left
+                                
+
+                                💡 **Note:** Credit costs may vary by video length and quality settings.
+                                """
+        
+        else:
+            credits_message = """❌ **Unable to check credits**
+
+    Could not connect to Vidu API. Please check:
+    - API key is configured correctly
+    - Network connection is stable
+    - Vidu API service is available
+
+    Try `/help` for other commands or contact support."""
+
+        send_whatsapp_message(user_phone, credits_message)
+        return {"status": "credits_sent"}
     if not redis_client.get(f"user_welcomed:{user_phone}"):
         welcome_text = """ **Welcome to AI Video Bot!**
 
@@ -541,6 +582,9 @@ Type /help for usage instructions"""
                 response_lines.append(line)
         
         return "\n".join(response_lines)
+    
+    
+    
     
     else:
         return """❓ Unknown command
