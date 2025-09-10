@@ -506,6 +506,7 @@ def handle_whatsapp_command(command: str, user_phone: str) -> str:
 • Videos take around 3 minutes to generate"""
     
     elif command == '/status':
+    
         redis_status = "✅ Connected" if redis_client else "❌ Disconnected"
         twilio_status = "✅ Connected" if twilio_client else "❌ Disconnected"
         
@@ -517,6 +518,34 @@ Twilio: {twilio_status}
 Video API: ✅ Ready
 
 Type /help for usage instructions"""
+
+    elif command == '/history':
+        if not redis_client:
+            return "❌ History unavailable (Redis not connected)"
+        
+        pattern = "job:*"
+        job_keys = redis_client.keys(pattern)
+        
+        if not job_keys:
+            return "📭 No video history found."
+        
+        response_lines = ["🎥 **Your Recent Videos:**"]
+        
+        for key in sorted(job_keys, reverse=True)[:5]:  # Last 5 jobs
+            job_data = redis_client.get(key)
+            if job_data:
+                job = json.loads(job_data)
+                status = job.get("status", "unknown").capitalize()
+                prompt = job.get("prompt", "")[:30] + ("..." if len(job.get("prompt", "")) > 30 else "")
+                video_url = job.get("video_url")
+                line = f"- **{status}**: {prompt}"
+                if video_url:
+                    PUBLIC_BASE_URL = "https://video-generation-web-app-production.up.railway.app"
+                    full_url = f"{PUBLIC_BASE_URL}{video_url}"
+                    line += f" [Watch]({full_url})"
+                response_lines.append(line)
+        
+        return "\n".join(response_lines)
     
     else:
         return """❓ Unknown command
@@ -527,6 +556,7 @@ Available commands:
 /status - Check status
 
 Example: /generate A cat dancing"""
+
 
 def send_whatsapp_message(to: str, body: str, media_url: str = None):
     """Send WhatsApp message with optional media attachment"""
@@ -711,6 +741,58 @@ async def video_generation_process(job_id: str, prompt: str, user_phone: str = N
         
         print("📼 Using HuggingFace fallback")
         await use_huggingface_fallback(job_id, prompt)
+
+async def get_vidu_credits():
+    """Check remaining Vidu API credits using official endpoint"""
+    try:
+        headers = {
+            "Authorization": f"Token {os.getenv('VIDU_API_KEY')}",
+            "Content-Type": "application/json"
+        }
+        
+        # Official Vidu API endpoint
+        response = requests.get(
+            "https://api.vidu.com/ent/v2/credits",
+            headers=headers
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            # Extract total remaining credits from all packages
+            total_remaining = 0
+            package_info = []
+            
+            for package in data.get('remains', []):
+                remaining = package.get('credit_remain', 0)
+                package_type = package.get('type', 'unknown')
+                total_remaining += remaining
+                package_info.append({
+                    'type': package_type,
+                    'remaining': remaining,
+                    'concurrency_limit': package.get('concurrency_limit', 0),
+                    'current_concurrency': package.get('current_concurrency', 0),
+                    'queue_count': package.get('queue_count', 0)
+                })
+            
+            return total_remaining, package_info
+        else:
+            print(f"Vidu API error: {response.status_code} - {response.text}")
+            return None, None
+            
+    except Exception as e:
+        print(f"Failed to get Vidu credits: {e}")
+        return None, None
+
+def calculate_videos_remaining(credits: int) -> dict:
+    """Calculate how many videos can be generated with remaining credits"""
+    if not credits:
+        return {"No of credits left": 0}
+
+    return {
+        "No of credits left": credits // 4,
+        
+    }
 
 async def poll_vidu_task(task_id: str, job_id: str, api_key: str, base_url: str):
     """Poll Vidu task until video is ready"""
