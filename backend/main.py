@@ -16,6 +16,7 @@ from typing import Dict, Optional
 import requests
 from twilio.rest import Client
 from datetime import datetime
+import re 
 
 load_dotenv()
 
@@ -62,6 +63,104 @@ def get_user_state(user_phone: str) -> dict:
 def clear_user_state(user_phone: str):
     """Clear user conversation state"""
     redis_client.delete(f"user_state:{user_phone}")
+
+import re
+
+# Comprehensive banned words database
+BANNED_WORDS = [
+    # Explicit content
+    "sex", "porn", "nude", "naked", "erotic", "xxx", "adult", "nsfw",
+    
+    # Violence & threats  
+    "kill", "murder", "stab", "shoot", "attack", "assault", "bomb", "weapon", 
+    "gun", "knife", "terror", "threat", "hurt", "harm", "destroy",
+    
+    # Hate speech
+    "hate", "racist", "nazi", "fascist", "supremacist", "bigot", "nigga","nigger","pajeet",
+    
+    # Drugs & illegal
+    "drug", "cocaine", "heroin", "meth", "weed", "marijuana", "illegal",
+    
+    # Profanity (extend as needed)
+    "damn", "hell", "crap", "stupid", "idiot", "moron", "disgusting","fuck",
+    
+    # Add more categories as needed
+    "scam", "fraud", "cheat", "lie", "steal"
+]
+
+# Create regex pattern for banned words
+banned_pattern = re.compile(r'\b(' + '|'.join(re.escape(word) for word in BANNED_WORDS) + r')\b', re.IGNORECASE)
+
+def comprehensive_content_filter(prompt: str) -> tuple[bool, str]:
+    # Length validation (Vidu API limit)
+    if len(prompt.strip()) < 5:
+        return False, "🤔 **Prompt too short!** Please describe your video idea in detail."
+    
+    if len(prompt) > 1500:
+        return False, f"📝 **Prompt too long!** Vidu accepts max 1500 characters.\n**Current:** {len(prompt)} characters"
+    
+    # Banned words check
+    if banned_pattern.search(prompt):
+        return False, "🚫 **Content policy violation.** Please use family-friendly, appropriate language for your video prompt."
+    
+    # Leetspeak detection
+    leetspeak_patterns = [
+        r'[s5][e3][x]+',      # s3x, 5ex, etc.
+        r'n[u4@][d0o]e?',     # n4de, nu0e, etc.
+        r'k[i1]ll',           # k1ll, ki11, etc.
+        r'h[a@]te',           # h@te, hate, etc.
+    ]
+    
+    for pattern in leetspeak_patterns:
+        if re.search(pattern, prompt, re.IGNORECASE):
+            return False, "🚫 **Inappropriate content detected.** Please rephrase your prompt using appropriate language."
+    
+    # Repetition/spam check
+    words = prompt.lower().split()
+    if len(words) > 5:
+        unique_ratio = len(set(words)) / len(words)
+        if unique_ratio < 0.4:
+            return False, "🔄 **Too repetitive.** Please make your prompt more varied and descriptive!"
+    
+    # Character repetition check
+    if re.search(r'(.)\1{4,}', prompt):
+        return False, "🔤 **Invalid format.** Please avoid excessive character repetition!"
+    
+    # All checks passed
+    return True, ""
+
+    
+def is_user_rate_limited(user_phone: str) -> bool:
+    """Checks if user has exceeded message rate limit"""
+    key = f"rate_limit:{user_phone}"
+    current_count = redis_client.get(key)
+    
+    if current_count and int(current_count) >= 10:  # 10 messages per hour
+        return True
+    
+    # Increment counter for this user
+    redis_client.incr(key)
+    redis_client.expire(key, 3600)  # Reset after 1 hour (3600 seconds)
+    return False
+
+def get_rate_limit_message(user_phone: str) -> str:
+    """Get friendly rate limit message with remaining time"""
+    key = f"rate_limit:{user_phone}"
+    ttl = redis_client.ttl(key)  # Time to live in seconds
+    
+    if ttl > 0:
+        minutes = ttl // 60
+        return f"""⏳ **Whoa there, speedy!** 
+
+You've hit the rate limit of **10 messages per hour**.
+
+**Try again in:** {minutes} minutes
+**Why limits?** Keeps the bot fast for everyone!
+
+Thanks for understanding! 😊"""
+    else:
+        return "⏳ **Rate limit active.** Please wait a moment before sending more messages."
+
     
     
 # Redis connection
@@ -209,8 +308,14 @@ async def whatsapp_webhook(
     
     print(f"📱 WhatsApp message from {user_phone}: {message_text}")
     
+    if is_user_rate_limited(user_phone):
+        rate_limit_msg = get_rate_limit_message(user_phone)
+        send_whatsapp_message(user_phone, rate_limit_msg)
+        print(f"Rate limited user: {user_phone}")
+        return {"status": "rate_limited"}
+    
     if not redis_client.get(f"user_welcomed:{user_phone}"):
-        welcome_text = """🤖 **Welcome to AI Video Bot!**
+        welcome_text = """ **Welcome to AI Video Bot!**
 
 🎬 **Available Commands:**
 • `/generate <prompt>` - Create AI video
@@ -301,6 +406,12 @@ Let's create amazing videos together! ✨"""
         Make it more descriptive for better results!"""
                 send_whatsapp_message(user_phone, error_msg)
                 return {"status": "prompt_too_short"}
+            
+            is_safe, filter_error = comprehensive_content_filter(prompt)
+            if not is_safe:
+                send_whatsapp_message(user_phone, filter_error)
+                print(f"🚫 Content blocked from {user_phone}: {prompt[:50]}...")
+                return {"status": "content_blocked"}
             
             # Generate enhanced version
             enhanced_prompt = enhance_prompt_free(prompt)
