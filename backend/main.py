@@ -64,7 +64,7 @@ def clear_user_state(user_phone: str):
     """Clear user conversation state"""
     redis_client.delete(f"user_state:{user_phone}")
 
-import re
+
 
 # Comprehensive banned words database
 BANNED_WORDS = [
@@ -165,13 +165,13 @@ Thanks for understanding! 😊"""
     
 # Redis connection
 try:
-    redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+    redis_client = redis.from_url(redis_url, decode_responses=True)
     redis_client.ping()
-    print("✅ Redis connected successfully")
+    print("Redis connected successfully")
 except Exception as e:
-    print(f"❌ Redis connection failed: {e}")
+    print(f"Redis connection failed: {e}")
     redis_client = None
-
 # Twilio client
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN") 
