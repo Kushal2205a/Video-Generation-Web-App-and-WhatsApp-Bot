@@ -144,7 +144,7 @@ def is_user_rate_limited(user_phone: str) -> bool:
     
     # Increment counter for this user
     redis_client.incr(key)
-    redis_client.expire(key, 3600)  # Reset after 1 hour (3600 seconds)
+    redis_client.expire(key, 3)  # Reset after 1 hour (3600 seconds)
     return False
 
 def get_rate_limit_message(user_phone: str) -> str:
