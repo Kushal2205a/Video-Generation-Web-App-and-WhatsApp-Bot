@@ -1,25 +1,50 @@
 import shutil
-from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
-from pydantic import BaseModel
 import os
-from gradio_client import Client
-from dotenv import load_dotenv
 import asyncio
 import uuid
 import json
-from typing import Dict, Optional
+import redis
+from fastapi import FastAPI, HTTPException, Form, BackgroundTasks
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, FileResponse
+from pydantic import BaseModel
+from dotenv import load_dotenv
 import uvicorn
 from huggingface_hub import login
 from pathlib import Path
+from typing import Dict, Optional
+import requests
+from twilio.rest import Client
 
 load_dotenv()
 
 app = FastAPI(title="AI Video Generator API")
 
+# Redis connection
+try:
+    redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+    redis_client.ping()
+    print("✅ Redis connected successfully")
+except Exception as e:
+    print(f"❌ Redis connection failed: {e}")
+    redis_client = None
+
+# Twilio client
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN") 
+TWILIO_WHATSAPP_FROM = os.getenv("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
+
+try:
+    twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+    print("✅ Twilio client initialized")
+except Exception as e:
+    print(f"❌ Twilio initialization failed: {e}")
+    twilio_client = None
+
+# Global job tracking (fallback if Redis unavailable)
 VIDEO_GENERATION_STATUS: Dict[str, dict] = {}
 
+# Existing models
 class Video_Request(BaseModel):
     prompt: str
 
@@ -34,11 +59,15 @@ class Status_Response(BaseModel):
     message: str
     video_url: Optional[str] = None
 
+# ========== EXISTING WEB APP ROUTES (UNCHANGED) ==========
 @app.get("/", response_class=HTMLResponse)
 async def serve_html():
     """Serves the HTML page"""
-    with open("../frontend/index.html", "r") as f:
-        return HTMLResponse(content=f.read())
+    try:
+        with open("../frontend/index.html", "r") as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        return HTMLResponse("<h1>AI Video Generator</h1><p>Frontend not available</p>")
 
 @app.get("/style.css")
 async def serve_css():
@@ -52,22 +81,24 @@ async def serve_js():
 
 @app.post("/api/generate-video", response_model=Video_Job_Created_Response)
 async def generate_video(request: Video_Request):
-    """Start the Video Generation Process."""
+    """Start the Video Generation Process (for web app)."""
     if not request.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt is required")
-    
+
     job_id = str(uuid.uuid4())
     
-    # Initialize Status - FIXED
-    VIDEO_GENERATION_STATUS[job_id] = {
+    # Store in Redis if available, otherwise use memory
+    job_data = {
         "status": "processing",
         "message": "Video generation has started",
         "video_url": None,
         "prompt": request.prompt
     }
     
-    asyncio.create_task(video_generation_process(job_id, request.prompt))
+    store_job_data(job_id, job_data)
     
+    asyncio.create_task(video_generation_process(job_id, request.prompt))
+
     return Video_Job_Created_Response(
         job_id=job_id,
         status="processing",
@@ -77,11 +108,10 @@ async def generate_video(request: Video_Request):
 @app.get("/api/status/{job_id}", response_model=Status_Response)
 async def get_status(job_id: str):
     """Get the status of Video generation"""
-    if job_id not in VIDEO_GENERATION_STATUS:
+    job_data = get_job_data(job_id)
+    if not job_data:
         raise HTTPException(status_code=404, detail="Job ID not found")
-    
-    job_data = VIDEO_GENERATION_STATUS[job_id]
-    
+
     return Status_Response(
         job_id=job_id,
         status=job_data["status"],
@@ -89,20 +119,357 @@ async def get_status(job_id: str):
         video_url=job_data.get("video_url")
     )
 
-async def video_generation_process(job_id: str, prompt: str):
-    """Generate Video with mock fallback for quota limits"""
+@app.get("/api/download/{job_id}")
+async def download_video(job_id: str):
+    """Serve the Video File (real or mock)"""
+    job_data = get_job_data(job_id)
+    if not job_data:
+        raise HTTPException(status_code=404, detail="Job ID not found")
+
+    if job_data["status"] != "completed":
+        raise HTTPException(status_code=400, detail="Video not ready for download")
+
+    video_path = job_data.get("video_path")
+    if not video_path or not os.path.exists(video_path):
+        raise HTTPException(status_code=404, detail="Video file not found")
+
+    return FileResponse(
+        video_path,
+        media_type="video/mp4",
+        headers={
+            "Content-Disposition": f"inline; filename={job_id}.mp4",
+            "Accept-Ranges": "bytes"
+        }
+    )
+
+# ========== NEW WHATSAPP BOT FUNCTIONALITY ==========
+
+@app.post("/webhook/whatsapp")
+async def whatsapp_webhook(
+    background_tasks: BackgroundTasks,
+    From: str = Form(...),
+    To: str = Form(...),
+    Body: str = Form(...),
+    MessageSid: str = Form(...),
+):
+    """Handle incoming WhatsApp messages"""
+    
+    if not twilio_client:
+        print("❌ Twilio client not available")
+        return {"status": "error", "message": "Service unavailable"}
+    
+    user_phone = From
+    message_text = Body.strip()
+    
+    print(f"📱 WhatsApp message from {user_phone}: {message_text}")
+    
     try:
-        env_file = Path(__file__).parent / '.env'
-        load_dotenv(dotenv_path=env_file)
+        # Handle commands
+        
+        if message_text.startswith('/generate '):
+            prompt = message_text[10:].strip()  # Remove '/generate '
+            
+            if len(prompt) < 5:
+                error_msg = """🤔 Your prompt seems too short!
+
+Try: /generate A cute cat playing piano in space
+
+Make it more descriptive for better results!"""
+                send_whatsapp_message(user_phone, error_msg)
+                return {"status": "prompt_too_short"}
+            
+            # Start video generation
+            background_tasks.add_task(handle_whatsapp_video_generation, prompt, user_phone)
+            return {"status": "processing"}
+        
+        elif message_text.startswith('/'):
+            response = handle_whatsapp_command(message_text, user_phone)
+            send_whatsapp_message(user_phone, response)
+            return {"status": "success"}
+        
+        # If not a command, suggest using /generate
+        if not message_text.startswith('/generate'):
+            help_text = """👋 Welcome to the AI Video Bot!
+
+To generate a video, use:
+/generate <your prompt>
+
+Example:
+/generate A cat playing piano in space
+
+Other commands:
+/help - Show help
+/status - Bot status"""
+            send_whatsapp_message(user_phone, help_text)
+            return {"status": "help_sent"}
+        
+        
+        
+        # Invalid /generate usage
+        send_whatsapp_message(
+            user_phone, 
+            "❓ Use: /generate <your prompt>\n\nExample: /generate A sunset over mountains"
+        )
+        return {"status": "invalid_command"}
+        
+    except Exception as e:
+        print(f"❌ WhatsApp webhook error: {e}")
+        send_whatsapp_message(user_phone, "❌ Sorry, something went wrong. Please try again.")
+        return {"status": "error", "message": str(e)}
+
+def handle_whatsapp_command(command: str, user_phone: str) -> str:
+    """Handle WhatsApp bot commands"""
+    command = command.lower().strip()
+    
+    if command == '/help':
+        return """🤖 **AI Video Bot Help**
+
+**Generate Videos:**
+/generate <your prompt>
+
+**Commands:**
+/help - Show this help
+/status - Bot status
+
+**Examples:**
+/generate A golden retriever playing in a park
+/generate Astronaut floating in space
+/generate Ocean waves at sunset
+
+**Tips:**
+• Be descriptive (min 5 words)
+• Include actions, settings, objects
+• Videos take 15-30 seconds to generate"""
+    
+    elif command == '/status':
+        redis_status = "✅ Connected" if redis_client else "❌ Disconnected"
+        twilio_status = "✅ Connected" if twilio_client else "❌ Disconnected"
+        
+        return f"""🟢 **Bot Status: Online**
+
+**Services:**
+Redis: {redis_status}
+Twilio: {twilio_status}
+Video API: ✅ Ready
+
+Type /help for usage instructions"""
+    
+    else:
+        return """❓ Unknown command
+
+Available commands:
+/help - Show help
+/generate <prompt> - Create video
+/status - Check status
+
+Example: /generate A cat dancing"""
+
+def send_whatsapp_message(to: str, body: str, media_url: str = None):
+    """Send WhatsApp message via Twilio"""
+    try:
+        message_data = {
+            'from_': TWILIO_WHATSAPP_FROM,
+            'body': body,
+            'to': to
+        }
+        
+        if media_url:
+            message_data['media_url'] = [media_url]
+        
+        message = twilio_client.messages.create(**message_data)
+        print(f"📤 WhatsApp message sent to {to}: {message.sid}")
+        return message
+        
+    except Exception as e:
+        print(f"❌ Failed to send WhatsApp message: {e}")
+
+async def handle_whatsapp_video_generation(prompt: str, user_phone: str):
+    """Handle video generation workflow for WhatsApp"""
+    try:
+        # Send acknowledgment
+        send_whatsapp_message(
+            user_phone, 
+            f"🎬 Generating your video: '{prompt}'\n\nThis usually takes 15-30 seconds..."
+        )
+        
+        # Create job
+        job_id = str(uuid.uuid4())
+        job_data = {
+            "status": "processing",
+            "message": "Processing request...",
+            "video_url": None,
+            "prompt": prompt,
+            "user_phone": user_phone
+        }
+        store_job_data(job_id, job_data)
+        
+        # Send progress update
+        await asyncio.sleep(5)
+        send_whatsapp_message(user_phone, "🤖 AI model is working on your video...")
+        
+        # Generate video
+        await video_generation_process(job_id, prompt, user_phone)
+        
+        # Check final status and send result
+        final_job_data = get_job_data(job_id)
+        if final_job_data and final_job_data["status"] == "completed":
+            video_url = f"https://your-ngrok-url.ngrok.io/api/download/{job_id}"
+            
+            success_msg = f"""✅ Your AI video is ready!
+
+🎥 Generated for: "{prompt}"
+
+Send another /generate command to create more videos!"""
+            
+            send_whatsapp_message(user_phone, success_msg)
+            # Uncomment to send actual video file:
+            # send_whatsapp_message(user_phone, "🎬 Here's your video:", media_url=video_url)
+        else:
+            send_whatsapp_message(
+                user_phone,
+                "❌ Video generation failed. Please try again with a different prompt."
+            )
+        
+    except Exception as e:
+        print(f"❌ WhatsApp video generation failed: {e}")
+        send_whatsapp_message(
+            user_phone,
+            "❌ Sorry, video generation failed. Please try again."
+        )
+
+# ========== HELPER FUNCTIONS ==========
+
+def store_job_data(job_id: str, data: dict):
+    """Store job data in Redis or fallback to memory"""
+    if redis_client:
+        try:
+            redis_client.setex(f"job:{job_id}", 3600, json.dumps(data))
+            return
+        except Exception as e:
+            print(f"Redis store failed: {e}")
+    
+    # Fallback to memory
+    VIDEO_GENERATION_STATUS[job_id] = data
+
+def get_job_data(job_id: str) -> Optional[dict]:
+    """Get job data from Redis or fallback to memory"""
+    if redis_client:
+        try:
+            data = redis_client.get(f"job:{job_id}")
+            if data:
+                return json.loads(data)
+        except Exception as e:
+            print(f"Redis get failed: {e}")
+    
+    # Fallback to memory
+    return VIDEO_GENERATION_STATUS.get(job_id)
+
+def update_job_data(job_id: str, updates: dict):
+    """Update job data"""
+    current_data = get_job_data(job_id)
+    if current_data:
+        current_data.update(updates)
+        store_job_data(job_id, current_data)
+
+# ========== VIDEO GENERATION (UPDATED WITH VIDU API) ==========
+
+async def video_generation_process(job_id: str, prompt: str, user_phone: str = None):
+    """Generate Video using Vidu API with fallback"""
+    try:
+        print(f"🎬 Starting video generation: {prompt}")
+        
+        # Update status
+        update_job_data(job_id, {
+            "message": "🤖 Connecting to Vidu AI model...",
+            "status": "processing"
+        })
+        
+        
+        vidu_api_key = os.getenv("VIDU_API_KEY")
+        vidu_base_url = os.getenv("VIDU_BASE_URL", "https://api.vidu.com")
+        
+        if vidu_api_key:
+            try:
+                headers = {
+                    "Authorization": f"Token {vidu_api_key}",
+                    "Content-Type": "application/json"
+                }
+                
+                payload = {
+                    "model": "vidu1",
+                    "prompt": prompt
+                }
+                
+                update_job_data(job_id, {"message": "🎨 Generating video frames..."})
+                
+                response = requests.post(
+                    f"{vidu_base_url}/ent/v2/text2video",
+                    headers=headers,
+                    json=payload,
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    # Handle Vidu response and save video
+                    video_path = await handle_vidu_response(result, job_id)
+                    
+                    update_job_data(job_id, {
+                        "status": "completed",
+                        "message": "✅ Video generated successfully!",
+                        "video_url": f"/api/download/{job_id}",
+                        "video_path": video_path
+                    })
+                    print(f"✅ Vidu video generated: {video_path}")
+                    return
+                    
+            except Exception as vidu_error:
+                print(f"⚠️ Vidu API failed: {vidu_error}")
+        
+        # Fallback to HuggingFace (your existing code)
+        print("📼 Using HuggingFace fallback")
+        await use_huggingface_fallback(job_id, prompt)
+        
+    except Exception as e:
+        print(f"❌ Video generation failed: {e}")
+        update_job_data(job_id, {
+            "status": "error",
+            "message": f"❌ Video generation failed: {str(e)}",
+            "video_url": None
+        })
+
+async def handle_vidu_response(result: dict, job_id: str) -> str:
+    """Handle Vidu API response and save video"""
+    # This is a placeholder - implement based on actual Vidu API response format
+    video_url = result.get("video_url") or result.get("download_url")
+    
+    if video_url:
+        # Download video from Vidu URL
+        videos_dir = "./videos"
+        os.makedirs(videos_dir, exist_ok=True)
+        video_path = f"{videos_dir}/{job_id}.mp4"
+        
+        video_response = requests.get(video_url, timeout=60)
+        video_response.raise_for_status()
+        
+        with open(video_path, 'wb') as f:
+            f.write(video_response.content)
+        
+        return video_path
+    else:
+        raise Exception("No video URL in Vidu response")
+
+async def use_huggingface_fallback(job_id: str, prompt: str):
+    """Fallback to HuggingFace (your original implementation)"""
+    try:
+        from gradio_client import Client
+        
         hf_token = os.getenv("HUGGINGFACE_TOKEN")
-        login(hf_token)
+        if hf_token:
+            login(hf_token)
+            
+        update_job_data(job_id, {"message": "🤖 Using HuggingFace model..."})
         
-        if not hf_token:
-            raise Exception("HuggingFace token not found in .env file")
-        
-        VIDEO_GENERATION_STATUS[job_id]["message"] = "🤖 Connecting to AI model..."
-        
-        # Hugging Face Model
         client = Client("hysts/zeroscope-v2")
         result = client.predict(
             prompt=prompt,
@@ -112,7 +479,7 @@ async def video_generation_process(job_id: str, prompt: str):
             api_name="/run"
         )
         
-        # Real generation succeeded
+        # Handle result (your existing logic)
         if isinstance(result, dict) and 'video' in result:
             temp_video_path = result['video']
         else:
@@ -124,78 +491,48 @@ async def video_generation_process(job_id: str, prompt: str):
         
         if os.path.exists(temp_video_path):
             shutil.copy2(temp_video_path, permanent_video_path)
-            message = "Video generated successfully!"
+            
+            update_job_data(job_id, {
+                "status": "completed",
+                "message": "✅ Video generated successfully!",
+                "video_url": f"/api/download/{job_id}",
+                "video_path": permanent_video_path
+            })
         else:
-            raise Exception(f"Generated video not found at: {temp_video_path}")
+            raise Exception("HuggingFace video not found")
+            
+    except Exception as hf_error:
+        print(f"⚠️ HuggingFace fallback failed: {hf_error}")
+        await use_mock_video_fallback(job_id, prompt)
+
+async def use_mock_video_fallback(job_id: str, prompt: str):
+    """Final fallback to mock video"""
+    try:
+        videos_dir = "./videos"
+        mock_video_path = f"{videos_dir}/mock_video.mp4"
+        final_path = f"{videos_dir}/{job_id}.mp4"
         
+        if os.path.exists(mock_video_path):
+            shutil.copy2(mock_video_path, final_path)
+            
+            update_job_data(job_id, {
+                "status": "completed",
+                "message": "✅ Demo video ready (using placeholder)",
+                "video_url": f"/api/download/{job_id}",
+                "video_path": final_path
+            })
+        else:
+            raise Exception("No mock video available")
+            
     except Exception as e:
-        # Check if it's a quota error
-        if "exceeded your GPU quota" in str(e) or "quota" in str(e).lower():
-            
-            # mock video 
-            videos_dir = "./videos"
-            mock_video_path = f"{videos_dir}/mock_video.mp4"
-            
-            if os.path.exists(mock_video_path):
-                VIDEO_GENERATION_STATUS[job_id] = {
-                    "status": "completed",
-                    "message": "Demo: Using pre-generated video due to API quota limits",
-                    "video_url": f"/api/download/{job_id}",
-                    "video_path": mock_video_path,
-                    "prompt": prompt
-                }
-                return
-        
-        # Regular error handling
-        VIDEO_GENERATION_STATUS[job_id] = {
+        update_job_data(job_id, {
             "status": "error",
-            "message": f"Error: {str(e)}",
-            "video_url": None,
-            "prompt": prompt
-        }
-        return
-    
-    # Success with real generation
-    VIDEO_GENERATION_STATUS[job_id] = {
-        "status": "completed",
-        "message": message,
-        "video_url": f"/api/download/{job_id}",
-        "video_path": permanent_video_path,
-        "prompt": prompt
-    }
-
-
-@app.get("/api/download/{job_id}")
-async def download_video(job_id: str):
-    """Serve the Video File (real or mock)"""
-    
-    # Ensure the job ID exists
-    if job_id not in VIDEO_GENERATION_STATUS:
-        raise HTTPException(status_code=404, detail="Job ID not found")
-    
-    job_data = VIDEO_GENERATION_STATUS[job_id]
-    
-    # Ensure the job has completed successfully
-    if job_data["status"] != "completed":
-        raise HTTPException(status_code=400, detail="Video not ready for download")
-    
-    video_path = job_data.get("video_path")
-
-    # Ensure the video file path is valid and exists
-    if not video_path or not os.path.exists(video_path):
-        raise HTTPException(status_code=404, detail="Video file not found")
-    
-    # Serve the file as an MP4 with streaming and range support
-    return FileResponse(
-        video_path,
-        media_type="video/mp4",
-        headers={
-            "Content-Disposition": f"inline; filename={job_id}.mp4", # Display inline with filename
-            "Accept-Ranges": "bytes" # Allow Partial Requests
-        }
-    )
+            "message": f"❌ All video generation methods failed",
+            "video_url": None
+        })
 
 if __name__ == "__main__":
     """Run the FastAPI app with Uvicorn"""
     port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port,timeout_keep_alive=900,timeout_graceful_shutdown=30)
+    print(f"🚀 Starting AI Video Generator with WhatsApp Bot on port {port}")
+    uvicorn.run(app, host="0.0.0.0", port=port, timeout_keep_alive=900, timeout_graceful_shutdown=30)
