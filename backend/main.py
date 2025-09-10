@@ -313,13 +313,15 @@ async def handle_whatsapp_video_generation(prompt: str, user_phone: str):
         # Check final status and send result
         final_job_data = get_job_data(job_id)
         if final_job_data and final_job_data["status"] == "completed":
-            video_url = f"https://your-ngrok-url.ngrok.io/api/download/{job_id}"
+            video_url = f" https://bdcc07030d0e.ngrok-free.app/api/download/{job_id}"
+            send_whatsapp_message(user_phone, "Here's your video:", media_url=video_url)
+            
             
             success_msg = f"""✅ Your AI video is ready!
 
 🎥 Generated for: "{prompt}"
 
-Send another /generate command to create more videos!"""
+Here's your video: {video_url}"""
             
             send_whatsapp_message(user_phone, success_msg)
             # Uncomment to send actual video file:
@@ -374,7 +376,9 @@ def update_job_data(job_id: str, updates: dict):
 # ========== VIDEO GENERATION (UPDATED WITH VIDU API) ==========
 
 async def video_generation_process(job_id: str, prompt: str, user_phone: str = None):
-    """Generate Video using Vidu API with fallback"""
+    """Generate Video using Vidu API with proper error handling"""
+    task_id = None  # ✅ Initialize task_id upfront
+    
     try:
         print(f"🎬 Starting video generation: {prompt}")
         
@@ -384,80 +388,135 @@ async def video_generation_process(job_id: str, prompt: str, user_phone: str = N
             "status": "processing"
         })
         
-        
+        # Try Vidu API
         vidu_api_key = os.getenv("VIDU_API_KEY")
         vidu_base_url = os.getenv("VIDU_BASE_URL", "https://api.vidu.com")
         
-        if vidu_api_key:
-            try:
-                headers = {
-                    "Authorization": f"Token {vidu_api_key}",
-                    "Content-Type": "application/json"
-                }
-                
-                payload = {
-                    "model": "vidu1",
-                    "prompt": prompt
-                }
-                
-                update_job_data(job_id, {"message": "🎨 Generating video frames..."})
-                
-                response = requests.post(
-                    f"{vidu_base_url}/ent/v2/text2video",
-                    headers=headers,
-                    json=payload,
-                    timeout=30
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    # Handle Vidu response and save video
-                    video_path = await handle_vidu_response(result, job_id)
-                    
-                    update_job_data(job_id, {
-                        "status": "completed",
-                        "message": "✅ Video generated successfully!",
-                        "video_url": f"/api/download/{job_id}",
-                        "video_path": video_path
-                    })
-                    print(f"✅ Vidu video generated: {video_path}")
-                    return
-                    
-            except Exception as vidu_error:
-                print(f"⚠️ Vidu API failed: {vidu_error}")
+        if not vidu_api_key:
+            raise Exception("Missing Vidu API key")
         
-        # Fallback to HuggingFace (your existing code)
+        headers = {
+            "Authorization": f"Token {vidu_api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": "viduq1",
+            "prompt": prompt,
+            "duration": 5,
+            "aspect_ratio": "16:9",
+            "resolution": "1080p",
+            "movement_amplitude": "auto"
+        }
+        
+        print("📡 Sending request to Vidu API...")
+        response = requests.post(
+            f"{vidu_base_url}/ent/v2/text2video",
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        
+        print(f"📝 Vidu API Response Code: {response.status_code}")
+        
+        if response.status_code == 200:
+            result = response.json()
+            task_id = result.get("task_id")  # ✅ Assign task_id safely
+            
+            if not task_id:
+                raise Exception("No task_id in Vidu API response")
+                
+            print(f"✅ Vidu task created: {task_id}")
+            
+            # Poll for completion with CORRECT endpoint
+            video_path = await poll_vidu_task(task_id, job_id, vidu_api_key, vidu_base_url)
+            
+            if video_path:
+                PUBLIC_BASE_URL = "https://bdcc07030d0e.ngrok-free.app"
+                update_job_data(job_id, {
+                    "status": "completed",
+                    "message": "✅ Video generated successfully!",
+                    "video_url": f"{PUBLIC_BASE_URL}/api/download/{job_id}",
+                    "video_path": video_path
+                })
+                return
+        
+        # If we get here, something failed
+        raise Exception(f"Vidu API failed: {response.status_code} - {response.text}")
+        
+    except Exception as vidu_error:
+        print(f"⚠️ Vidu API failed: {vidu_error}")
+        
+        # ✅ Safe to use task_id here since it's initialized
+        if task_id:
+            print(f"🔄 Failed task ID: {task_id}")
+        
+        # Fallback to HuggingFace
         print("📼 Using HuggingFace fallback")
         await use_huggingface_fallback(job_id, prompt)
+
+async def poll_vidu_task(task_id: str, job_id: str, api_key: str, base_url: str):
+    """Poll Vidu task until video is ready"""
+    headers = {"Authorization": f"Token {api_key}"}
+
+    for attempt in range(120):  # up to 10 minutes
+        try:
+            response = requests.get(
+                f"{base_url}/ent/v2/tasks/{task_id}/creations",
+                headers=headers,
+                timeout=15
+            )
+
+            if response.status_code != 200:
+                print(f"HTTP {response.status_code} error")
+                await asyncio.sleep(5)
+                continue
+
+            data = response.json()
+            state = data.get("state", "")
+            print(f"Attempt {attempt + 1}: {state}")
+
+            if state == "success":
+                creations = data.get("creations", [])
+                if creations:
+                    video_url = creations[0].get("url")
+                    if video_url:
+                        return await download_vidu_video(video_url, job_id)
+                return None
+                
+            elif state == "failed":
+                print("Generation failed")
+                return None
+                
+            else:
+                await asyncio.sleep(5)
+                
+        except Exception as e:
+            print(f"Polling error: {e}")
+            await asyncio.sleep(5)
+
+    print("Polling timeout")
+    return None
+
+async def download_vidu_video(url: str, job_id: str):
+    """Download video and save locally"""
+    try:
+        response = requests.get(url, timeout=60)
+        response.raise_for_status()
+        
+        os.makedirs("./videos", exist_ok=True)
+        video_path = f"./videos/{job_id}.mp4"
+        
+        with open(video_path, "wb") as f:
+            f.write(response.content)
+            
+        print(f"Video downloaded: {video_path}")
+        return video_path
         
     except Exception as e:
-        print(f"❌ Video generation failed: {e}")
-        update_job_data(job_id, {
-            "status": "error",
-            "message": f"❌ Video generation failed: {str(e)}",
-            "video_url": None
-        })
+        print(f"Download failed: {e}")
+        return None
 
-async def handle_vidu_response(result: dict, job_id: str) -> str:
-    """Handle Vidu API response and save video"""
-    # This is a placeholder - implement based on actual Vidu API response format
-    video_url = result.get("video_url") or result.get("download_url")
-    
-    if video_url:
-        # Download video from Vidu URL
-        videos_dir = "./videos"
-        os.makedirs(videos_dir, exist_ok=True)
-        video_path = f"{videos_dir}/{job_id}.mp4"
-        
-        video_response = requests.get(video_url, timeout=60)
-        video_response.raise_for_status()
-        
-        with open(video_path, 'wb') as f:
-            f.write(video_response.content)
-        
-        return video_path
-    else:
-        raise Exception("No video URL in Vidu response")
 
 async def use_huggingface_fallback(job_id: str, prompt: str):
     """Fallback to HuggingFace (your original implementation)"""
