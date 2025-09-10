@@ -540,8 +540,7 @@ Type /help for usage instructions"""
                 video_url = job.get("video_url")
                 line = f"- **{status}**: {prompt}"
                 if video_url:
-                    PUBLIC_BASE_URL = "https://video-generation-web-app-production.up.railway.app"
-                    full_url = f"{PUBLIC_BASE_URL}{video_url}"
+                    full_url = f"{video_url}"
                     line += f" [Watch]({full_url})"
                 response_lines.append(line)
         
