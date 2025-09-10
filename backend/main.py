@@ -539,8 +539,10 @@ Type /help for usage instructions"""
                 prompt = job.get("prompt", "")[:30] + ("..." if len(job.get("prompt", "")) > 30 else "")
                 video_url = job.get("video_url")
                 line = f"- **{status}**: {prompt}"
+                PUBLIC_BASE_URL = "https://video-generation-web-app-production.up.railway.app"
                 if video_url:
-                    full_url = f"{video_url}"
+                    job_id = key.replace("job:", "")
+                    full_url = f"{PUBLIC_BASE_URL}/api/download/{job_id}"
                     line += f" [Watch]({full_url})"
                 response_lines.append(line)
         
