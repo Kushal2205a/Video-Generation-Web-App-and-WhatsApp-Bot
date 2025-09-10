@@ -529,7 +529,7 @@ Type /help for usage instructions"""
         if not job_keys:
             return "📭 No video history found."
         
-        response_lines = ["🎥 **Your Recent Videos:**"]
+        response_lines = [" **Your Recent Prompts:**"]
         
         for key in sorted(job_keys, reverse=True)[:5]:  # Last 5 jobs
             job_data = redis_client.get(key)
@@ -537,13 +537,7 @@ Type /help for usage instructions"""
                 job = json.loads(job_data)
                 status = job.get("status", "unknown").capitalize()
                 prompt = job.get("prompt", "")[:30] + ("..." if len(job.get("prompt", "")) > 30 else "")
-                video_url = job.get("video_url")
                 line = f"- **{status}**: {prompt}"
-                PUBLIC_BASE_URL = "https://video-generation-web-app-production.up.railway.app"
-                if video_url:
-                    job_id = key.replace("job:", "")
-                    full_url = f"{PUBLIC_BASE_URL}/api/download/{job_id}"
-                    line += f" [Watch]({full_url})"
                 response_lines.append(line)
         
         return "\n".join(response_lines)
