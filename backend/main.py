@@ -338,16 +338,16 @@ async def whatsapp_webhook(
             
             credits_message = f"""💳 **Vidu API Credits Status**
 
-                                🎬 **Total Remaining Credits:** {remaining}
+🎬 **Total Remaining Credits:** {remaining}
 
-                                📦 **Package Details:**{package_details}
+📦 **Package Details:**{package_details}
 
-                                **🎥 Videos You Can Generate:**
-                                • **4-second videos:** {videos_left['No of credits left']} videos left
-                                
+**🎥 Videos You Can Generate:**
+• **4-second videos:** {videos_left['No of credits left']} videos left
 
-                                💡 **Note:** Credit costs may vary by video length and quality settings.
-                                """
+
+💡 **Note:** Credit costs may vary by video length and quality settings.
+"""
         
         else:
             credits_message = """❌ **Unable to check credits**
@@ -451,8 +451,31 @@ Let's create amazing videos together! ✨"""
         Try: /generate A cute cat playing piano in space
 
         Make it more descriptive for better results!"""
+        
                 send_whatsapp_message(user_phone, error_msg)
                 return {"status": "prompt_too_short"}
+            
+            remaining, package_info = await get_vidu_credits()
+    
+            if remaining is not None:
+                if remaining < 4:  # Minimum credits needed
+                    low_credits_msg = f"""⚠️ **Insufficient Credits**
+
+You have **{remaining} credits** remaining, but need at least **4 credits** to generate a video.
+
+🔄 **Options:**
+- Wait for credit renewal
+- Purchase additional credits at https://platform.vidu.com
+- Use `/credits` to check detailed status"""
+                    
+                    send_whatsapp_message(user_phone, low_credits_msg)
+                    return {"status": "insufficient_credits"}
+                
+                # Show credits info with generation start
+                credits_info = f"\n\n **Credits:** ~{remaining-4} remaining after generation"
+            else:
+                credits_info = "\n\n **Credits:** Unable to check current balance"
+                
             
             is_safe, filter_error = comprehensive_content_filter(prompt)
             if not is_safe:
