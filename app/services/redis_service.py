@@ -197,23 +197,29 @@ def get_smart_suggestions(user_phone: str, n: int = 3) -> list:
     return suggestions[:n]
 
 def generate_contextual_response(user_phone: str, prompt: str = None) -> str:
-    """
-    Small wrapper to create a contextual reply using stored context and simple heuristics.
-    Returns a short, user-friendly string.
-    """
-    context = get_conversation_context(user_phone) or {}
+    """Only provide contextual responses for appropriate scenarios"""
+    
+    # Don't provide contextual response for commands
+    if prompt is None or prompt.startswith('/'):
+        return None
+    
+    # Only provide contextual response if user has some history
     prefs = analyze_user_preferences(user_phone)
+    if prefs.get("prompt_count", 0) == 0:
+        return None  # No context to work with
+    
+    context = get_conversation_context(user_phone) or {}
     suggestions = get_smart_suggestions(user_phone, n=2)
-
+    
     lines = []
-    if prompt:
-        lines.append(f"Got your prompt: \"{prompt}\".")
+    lines.append(f"Got your prompt: \"{prompt}\".")
+    
     if prefs.get("prompt_count", 0) > 0:
         lines.append(f"You've made {prefs['prompt_count']} recent prompts. Here are suggestions:")
-    lines += [f"- {s}" for s in suggestions]
-    if not lines:
-        lines = ["Hi — send a descriptive prompt (e.g. 'A cat playing piano in space')"]
-    return "\n".join(lines)
+        lines += [f"- {s}" for s in suggestions]
+    
+    return "\n".join(lines) if lines else None
+
 # Export for other modules
 __all__ = [
     "VIDEO_GENERATION_STATUS",

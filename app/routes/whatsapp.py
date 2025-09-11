@@ -55,10 +55,11 @@ async def whatsapp_webhook(
         print(f"Rate limited user: {user_phone}")
         return {"status": "rate_limited"}
     
-    contextual_response = generate_contextual_response(user_phone, message_text)
-    if contextual_response:
-        send_whatsapp_message(user_phone, contextual_response)
-        return {"status": "contextual_response_sent"}
+    if not message_text.startswith('/'):
+        contextual_response = generate_contextual_response(user_phone, message_text)
+        if contextual_response:
+            send_whatsapp_message(user_phone, contextual_response)
+            return {"status": "contextual_response_sent"}
     
     # Handle /suggestions command
     if message_text.lower() == '/suggestions':
