@@ -1,232 +1,158 @@
-from main import VIDEO_GENERATION_STATUS
-import redis
-import os
+# app/services/redis_service.py
 import json
-from datetime import datetime
-from typing import Optional
-import json
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any
+
 from app.config import redis_client
 
+# In-memory fallback if Redis is unavailable.
+VIDEO_GENERATION_STATUS: Dict[str, Dict[str, Any]] = {}
+USER_STATE: Dict[str, Dict[str, Any]] = {}
+CONVERSATION_CONTEXT: Dict[str, Any] = {}
+RATE_LIMITS: Dict[str, float] = {}
 
-def store_user_state(user_phone: str, state: str, data: dict):
-    """Store user conversation state"""
-    if not redis_client:
-        return 
-    state_key = f"user_state:{user_phone}"
-    state_data = {
-        "state": state,
-        "data": data,
-        "timestamp": datetime.now().isoformat()
-    }
-    redis_client.set(state_key, json.dumps(state_data), ex=300)  # 5 minutes expiry
+JOB_TTL_SECONDS = 60 * 60 * 24  # 24 hours fallback TTL
 
-def get_user_state(user_phone: str) -> dict:
-    """Get user conversation state"""
-    state_key = f"user_state:{user_phone}"
-    state_data = redis_client.get(state_key)
-    return json.loads(state_data) if state_data else None
-
-def clear_user_state(user_phone: str):
-    """Clear user conversation state"""
-    redis_client.delete(f"user_state:{user_phone}")
-
-def store_conversation_context(user_phone: str, message_type: str, content: dict):
-    """Enhanced conversation storage with context"""
-    if not redis_client:
-        return
-    
-    context_key = f"context:{user_phone}"
-    
-    # Create context entry
-    context_entry = {
-        "type": message_type,  # 'user_message', 'video_request', 'video_completed', 'command'
-        "content": content,
-        "timestamp": datetime.now().isoformat()
-    }
-    
-    # Get existing context
-    existing_context = redis_client.get(context_key)
-    if existing_context:
-        context = json.loads(existing_context)
-    else:
-        context = {"history": [], "preferences": {}, "stats": {}}
-    
-    # Add new entry
-    context["history"].append(context_entry)
-    
-    # Keep only last 50 entries to prevent bloat
-    if len(context["history"]) > 50:
-        context["history"] = context["history"][-50:]
-    
-    # Update user stats
-    if message_type == "video_completed":
-        context["stats"]["total_videos"] = context["stats"].get("total_videos", 0) + 1
-        context["stats"]["last_video_date"] = datetime.now().isoformat()
-    
-    # Store back with 7-day expiry
-    redis_client.set(context_key, json.dumps(context), ex=604800)
-
-def get_conversation_context(user_phone: str) -> dict:
-    """Get full conversation context for user"""
-    if not redis_client:
-        return {"history": [], "preferences": {}, "stats": {}}
-    
-    context_key = f"context:{user_phone}"
-    context_data = redis_client.get(context_key)
-    
-    if context_data:
-        return json.loads(context_data)
-    return {"history": [], "preferences": {}, "stats": {}}
-
-def analyze_user_preferences(user_phone: str) -> dict:
-    """Analyze user's video generation patterns"""
-    context = get_conversation_context(user_phone)
-    
-    # Analyze video requests
-    video_requests = [entry for entry in context["history"] if entry["type"] == "video_request"]
-    
-    preferences = {
-        "favorite_themes": [],
-        "common_keywords": [],
-        "preferred_time": None,
-        "total_requests": len(video_requests)
-    }
-    
-    if video_requests:
-        # Extract common themes
-        all_prompts = " ".join([req["content"].get("prompt", "") for req in video_requests])
-        
-        # Simple keyword analysis
-        words = all_prompts.lower().split()
-        word_freq = {}
-        for word in words:
-            if len(word) > 3:  # Skip short words
-                word_freq[word] = word_freq.get(word, 0) + 1
-        
-        # Get top keywords
-        preferences["common_keywords"] = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:5]
-        
-        # Analyze themes
-        themes = ["dance", "animal", "nature", "space", "city", "music", "food", "travel"]
-        for theme in themes:
-            if theme in all_prompts.lower():
-                preferences["favorite_themes"].append(theme)
-    
-    return preferences
-
-def generate_contextual_response(user_phone: str, current_message: str) -> str:
-    """Generate responses based on conversation history"""
-    context = get_conversation_context(user_phone)
-    preferences = analyze_user_preferences(user_phone)
-    
-    # Check if user is repeating similar requests
-    recent_requests = [entry for entry in context["history"][-5:] if entry["type"] == "video_request"]
-    
-    if recent_requests:
-        last_prompt = recent_requests[-1]["content"].get("prompt", "").lower()
-        if last_prompt and last_prompt in current_message.lower():
-            return """🔄 *I notice you're requesting something similar to before!* """
-    
-    return None  # Return None if no contextual response needed
-
-def get_smart_suggestions(user_phone: str) -> str:
-    """Get personalized suggestions based on history"""
-    context = get_conversation_context(user_phone)
-    stats = context.get("stats", {})
-    
-    suggestions = []
-    
-    if stats.get("total_videos", 0) == 0:
-        suggestions = [
-            "🌟 *First time?* Try: 'A golden retriever playing in a park'",
-            "🎭 *Creative?* Try: 'A dancer silhouette against sunset'", 
-            "🌸 *Nature lover?* Try: 'Cherry blossoms falling in slow motion'"
-        ]
-    else:
-        preferences = analyze_user_preferences(user_phone)
-        if preferences["favorite_themes"]:
-            theme = preferences["favorite_themes"][0]
-            suggestions = [
-                f"🎬 *More {theme}:* Try adding 'cinematic lighting' to your {theme} prompts",
-                f"✨ *Variation:* Combine {theme} with 'golden hour lighting'",
-                f"🎨 *Creative twist:* Try '{theme} in an artistic style'"
-            ]
-    
-    return "\n".join(suggestions)
-
-def is_user_rate_limited(user_phone: str) -> bool:
-    """Checks if user has exceeded message rate limit"""
-    if not redis_client:
-        return False  # No rate limiting if Redis unavailable
-    key = f"rate_limit:{user_phone}"
-    current_count = redis_client.get(key)
-    
-    if current_count and int(current_count) >= 10:  # 10 messages per hour
-        return True
-    
-    # Increment counter for this user
-    redis_client.incr(key)
-    redis_client.expire(key, 3)  # Reset after 1 hour (3600 seconds)
-    return False
-
-def get_rate_limit_message(user_phone: str) -> str:
-    """Get friendly rate limit message with remaining time"""
-    key = f"rate_limit:{user_phone}"
-    ttl = redis_client.ttl(key)  # Time to live in seconds
-    
-    if ttl > 0:
-        minutes = ttl // 60
-        return f""" *Whoa there,* 
-
-You've hit the rate limit of *10 messages per hour*.
-
-*Try again in:* {minutes} minutes
-*Why limits?* Keeps the bot fast for everyone
-
-Thanks for understanding"""
-    else:
-        return " *Rate limit active.* Please wait a moment before sending more messages."
-
-def store_job_data(job_id: str, data: dict, user_phone: str = None):
-    """Store job data in Redis or fallback to memory with user association"""
+# -----------------------
+# Job storage (Redis or fallback)
+# -----------------------
+def store_job_data(job_id: str, data: dict, user_phone: Optional[str] = None) -> None:
+    """Store job data in Redis or in-memory fallback."""
+    payload = json.dumps(data)
     if redis_client:
         try:
-            # Store job data 
-            redis_client.setex(f"job:{job_id}", 3600, json.dumps(data))
-            
-        
+            redis_client.setex(f"job:{job_id}", JOB_TTL_SECONDS, payload)
             if user_phone:
-            
                 clean_phone = user_phone.replace("whatsapp:", "").replace("+", "").replace("-", "").replace(" ", "")
-                # Store user-job association with same expiry
-                redis_client.setex(f"user_job:{clean_phone}:{job_id}", 3600, json.dumps(data))
-            
+                redis_client.setex(f"user_job:{clean_phone}:{job_id}", JOB_TTL_SECONDS, payload)
             return
         except Exception as e:
-            print(f"Redis store failed: {e}")
-    
-    # Fallback to memory (if redis not working)
-    VIDEO_GENERATION_STATUS[job_id] = data
+            print(f"Redis store failed: {e} — falling back to memory")
 
+    VIDEO_GENERATION_STATUS[job_id] = data
+    if user_phone:
+        clean_phone = user_phone.replace("whatsapp:", "").replace("+", "").replace("-", "").replace(" ", "")
+        USER_STATE.setdefault(clean_phone, {})
+        USER_STATE[clean_phone].setdefault("jobs", []).append(job_id)
 
 def get_job_data(job_id: str) -> Optional[dict]:
-    """Get job data from Redis or fallback to memory"""
+    """Retrieve job data from Redis or fallback."""
     if redis_client:
         try:
-            data = redis_client.get(f"job:{job_id}")
-            if data:
-                return json.loads(data)
+            raw = redis_client.get(f"job:{job_id}")
+            if raw:
+                return json.loads(raw)
         except Exception as e:
-            print(f"Redis get failed: {e}")
-    
-    # Fallback to memory
+            print(f"Redis get failed: {e} — falling back to memory")
     return VIDEO_GENERATION_STATUS.get(job_id)
 
-def update_job_data(job_id: str, updates: dict):
-    """Update job data"""
-    current_data = get_job_data(job_id)
-    if current_data:
-        current_data.update(updates)
-        user_phone=current_data.get("user_phone")
-        store_job_data(job_id, current_data,user_phone)
+def update_job_data(job_id: str, update: dict) -> None:
+    """Merge update into existing job data and persist."""
+    current = get_job_data(job_id) or {}
+    current.update(update)
+    store_job_data(job_id, current)
+
+# -----------------------
+# User state helpers
+# -----------------------
+def store_user_state(user_phone: str, state: dict) -> None:
+    clean_phone = user_phone.replace("whatsapp:", "").replace("+", "").replace("-", "").replace(" ", "")
+    if redis_client:
+        try:
+            redis_client.setex(f"user_state:{clean_phone}", JOB_TTL_SECONDS, json.dumps(state))
+            return
+        except Exception as e:
+            print(f"Redis store user state failed: {e} — using memory fallback")
+    USER_STATE[clean_phone] = state
+
+def get_user_state(user_phone: str) -> Optional[dict]:
+    clean_phone = user_phone.replace("whatsapp:", "").replace("+", "").replace("-", "").replace(" ", "")
+    if redis_client:
+        try:
+            raw = redis_client.get(f"user_state:{clean_phone}")
+            if raw:
+                return json.loads(raw)
+        except Exception as e:
+            print(f"Redis get user state failed: {e} — using memory fallback")
+    return USER_STATE.get(clean_phone)
+
+def clear_user_state(user_phone: str) -> None:
+    clean_phone = user_phone.replace("whatsapp:", "").replace("+", "").replace("-", "").replace(" ", "")
+    if redis_client:
+        try:
+            redis_client.delete(f"user_state:{clean_phone}")
+        except Exception as e:
+            print(f"Redis delete user state failed: {e}")
+    USER_STATE.pop(clean_phone, None)
+
+# -----------------------
+# Conversation context
+# -----------------------
+def store_conversation_context(user_phone: str, key: str, value: dict) -> None:
+    clean_phone = user_phone.replace("whatsapp:", "").replace("+", "").replace("-", "").replace(" ", "")
+    if redis_client:
+        try:
+            redis_client.hset(f"context:{clean_phone}", key, json.dumps(value))
+            return
+        except Exception as e:
+            print(f"Redis hset context failed: {e} — using memory fallback")
+    CONVERSATION_CONTEXT.setdefault(clean_phone, {})[key] = value
+
+def get_conversation_context(user_phone: str, key: Optional[str] = None):
+    clean_phone = user_phone.replace("whatsapp:", "").replace("+", "").replace("-", "").replace(" ", "")
+    if redis_client:
+        try:
+            if key:
+                raw = redis_client.hget(f"context:{clean_phone}", key)
+                return json.loads(raw) if raw else None
+            else:
+                raw = redis_client.hgetall(f"context:{clean_phone}")
+                return {k: json.loads(v) for k, v in raw.items()} if raw else {}
+        except Exception as e:
+            print(f"Redis get context failed: {e} — using memory fallback")
+    if key:
+        return CONVERSATION_CONTEXT.get(clean_phone, {}).get(key)
+    return CONVERSATION_CONTEXT.get(clean_phone, {})
+
+# -----------------------
+# Rate limiting (simple)
+# -----------------------
+def is_user_rate_limited(user_phone: str, window_seconds: int = 60, max_calls: int = 6) -> bool:
+    clean_phone = user_phone.replace("whatsapp:", "").replace("+", "").replace("-", "").replace(" ", "")
+    now_ts = time.time()
+    if redis_client:
+        try:
+            key = f"rate:{clean_phone}"
+            # store timestamps in a Redis list (LPUSH + LTRIM) — simplified here:
+            redis_client.lpush(key, now_ts)
+            redis_client.ltrim(key, 0, max_calls - 1)
+            redis_client.expire(key, window_seconds)
+            length = redis_client.llen(key)
+            return length > max_calls
+        except Exception as e:
+            print(f"Redis rate limit failed: {e} — falling back to memory")
+    # memory fallback
+    timestamps = RATE_LIMITS.get(clean_phone, [])
+    timestamps = [t for t in timestamps if now_ts - t < window_seconds]
+    timestamps.append(now_ts)
+    RATE_LIMITS[clean_phone] = timestamps
+    return len(timestamps) > max_calls
+
+def get_rate_limit_message(user_phone: str) -> str:
+    return "You're sending requests too quickly. Please wait a moment."
+
+# Export for other modules
+__all__ = [
+    "VIDEO_GENERATION_STATUS",
+    "store_job_data",
+    "get_job_data",
+    "update_job_data",
+    "store_user_state",
+    "get_user_state",
+    "clear_user_state",
+    "store_conversation_context",
+    "get_conversation_context",
+    "is_user_rate_limited",
+    "get_rate_limit_message",
+]
