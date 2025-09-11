@@ -19,9 +19,74 @@ from datetime import datetime
 import re 
 from fastapi.staticfiles import StaticFiles
 load_dotenv()
+import ffmpeg
+import os
+from pathlib import Path
+
 
 app = FastAPI(title="AI Video Generator API")
 
+async def compress_video(input_path: str, output_path: str, quality: str = "medium") -> str:
+    """
+    Compress video using FFmpeg
+    """
+    
+    # Quality presets
+    compression_settings = {
+        "whatsapp": {
+            "vcodec": "libx264",
+            "crf": 28,
+            "preset": "medium",
+            "vf": "scale='min(720,iw)':'min(720,ih)':force_original_aspect_ratio=decrease",
+            "acodec": "aac",
+            "ab": "128k",
+            "maxrate": "1M",
+            "bufsize": "2M"
+        },
+        "low": {
+            "vcodec": "libx264", 
+            "crf": 32,
+            "preset": "fast",
+            "vf": "scale=480:-2",
+            "acodec": "aac",
+            "ab": "96k"
+        },
+        "medium": {
+            "vcodec": "libx264",
+            "crf": 23,
+            "preset": "medium", 
+            "vf": "scale=720:-2",
+            "acodec": "aac",
+            "ab": "128k"
+        },
+        "high": {
+            "vcodec": "libx264",
+            "crf": 18,
+            "preset": "slow",
+            "acodec": "aac", 
+            "ab": "192k"
+        }
+    }
+    
+    settings = compression_settings.get(quality, compression_settings["medium"])
+    
+    try:
+        # Build FFmpeg command
+        stream = ffmpeg.input(input_path)
+        stream = ffmpeg.output(
+            stream, 
+            output_path,
+            **settings
+        )
+        
+        # Run compression
+        ffmpeg.run(stream, overwrite_output=True, quiet=True)
+        
+        return output_path
+        
+    except ffmpeg.Error as e:
+        print(f"FFmpeg compression failed: {e}")
+        return input_path  # Return original if compression fails
 
 def enhance_prompt_free(prompt: str) -> str:
     """Free rule-based prompt enhancement"""
@@ -83,11 +148,11 @@ BANNED_WORDS = [
     # Drugs & illegal
     "drug", "cocaine", "heroin", "meth", "weed", "marijuana", "illegal",
     
-    # Profanity (extend as needed)
+    # Profanity & offensive
     "damn", "hell", "crap", "stupid", "idiot", "moron", "disgusting","fuck",
     
     # Add more categories as needed
-    "scam", "fraud", "cheat", "lie", "steal"
+    "scam", "fraud", "cheat", "lie", "steal", "gore", "torture", "abuse"
 ]
 
 # Create regex pattern for banned words
@@ -722,22 +787,42 @@ def update_job_data(job_id: str, updates: dict):
         current_data.update(updates)
         store_job_data(job_id, current_data)
 
-# ========== VIDEO GENERATION (UPDATED WITH VIDU API) ==========
+# PROGRESS UPDATE
+async def send_progress_update(user_phone: str, message: str):
+    """Send progress update to user via WhatsApp"""
+    if user_phone and twilio_client:
+        try:
+            send_whatsapp_message(user_phone, message)
+            print(f"Progress update sent to {user_phone}: {message}")
+        except Exception as e:
+            print(f"Failed to send progress update: {e}")
 
+# VIDEO GENERATION
 async def video_generation_process(job_id: str, prompt: str, user_phone: str = None):
-    """Generate Video using Vidu API with proper error handling"""
-    task_id = None  # ✅ Initialize task_id upfront
+    """Generate Video using Vidu API"""
+    task_id = None  # Initialize task_id
     
     try:
         print(f"🎬 Starting video generation: {prompt}")
         
-        # Update status
+        if user_phone:
+            await send_progress_update(user_phone, 
+                f"""🎬 **Video Generation Started!**
+                
+**Your prompt:** {prompt}
+
+**Status:** Connecting to AI model...
+**Estimated time:** 2-3 minutes
+I'll keep you updated""")
+        
+        # Status Update 1 
         update_job_data(job_id, {
-            "message": "🤖 Connecting to Vidu AI model...",
-            "status": "processing"
+            "message": "Connecting to Vidu AI model...",
+            "status": "processing",
+            "progress" : 10
         })
         
-        # Try Vidu API
+        # Vidu API
         vidu_api_key = os.getenv("VIDU_API_KEY")
         vidu_base_url = os.getenv("VIDU_BASE_URL", "https://api.vidu.com")
         
@@ -758,6 +843,17 @@ async def video_generation_process(job_id: str, prompt: str, user_phone: str = N
             "movement_amplitude": "small"
         }
         
+        # Status Update 2
+        update_job_data(job_id, {
+            "message": "Sending request to AI model...",
+            "status": "processing",
+            "progress": 20
+        })
+        
+        if user_phone:
+            await send_progress_update(user_phone, 
+                " **Connected** Sending your video request...")
+        
         print("📡 Sending request to Vidu API...")
         response = requests.post(
             f"{vidu_base_url}/ent/v2/text2video",
@@ -770,21 +866,97 @@ async def video_generation_process(job_id: str, prompt: str, user_phone: str = N
         
         if response.status_code == 200:
             result = response.json()
-            task_id = result.get("task_id")  # ✅ Assign task_id safely
+            task_id = result.get("task_id")  #Assign task_id safely
             
             if not task_id:
                 raise Exception("No task_id in Vidu API response")
-                
-            print(f"✅ Vidu task created: {task_id}")
             
-            # Poll for completion with CORRECT endpoint
+            update_job_data(job_id, {
+                "message": "Your video is being generated...",
+                "status": "processing",
+                "progress": 30
+            })
+
+        if user_phone:
+            await send_progress_update(user_phone, 
+                    f"""✅ **Video Generation In Progress!**
+**AI Model:** Vidu 1.5
+**Task ID:** `{task_id[:8]}...`
+**Creating:** {prompt}
+**Next update:** ~90 seconds""")
+            
+            print(f"✅ Vidu task created: {task_id}")
+        
+            
+            # Poll for completion
             video_path = await poll_vidu_task(task_id, job_id, vidu_api_key, vidu_base_url)
             
             if video_path:
+                print("Starting video compression...")
+                update_job_data(job_id, {
+                    "message": "Compressing video for optimal delivery...",
+                    "status": "processing",
+                    "progress": 80
+                })
+                
+                if user_phone:
+                    await send_progress_update(user_phone, 
+                        " **Video Generated Successfully!** Now optimizing for WhatsApp...")
+                
+                print("Starting video compression...")
+                
+                # Compressed filename
+                base_name = os.path.splitext(video_path)[0]
+                compressed_path = f"{base_name}_compressed.mp4"
+                
+                # Compress video 
+                final_video_path = await compress_video(video_path, compressed_path, "whatsapp")
+                
+                # Check file size 
+                file_size = os.path.getsize(final_video_path)
+                file_size_mb = file_size / (1024 * 1024)
+                
+                # Aggressive compression if still too large
+                if file_size > 15 * 1024 * 1024:  # 15MB
+                    print(f"File still large ({file_size_mb:.1f}MB), applying aggressive compression...")
+                    ultra_compressed_path = f"{base_name}_ultra.mp4"
+                    
+                    try:
+                        stream = ffmpeg.input(video_path)
+                        stream = ffmpeg.output(
+                            stream, 
+                            ultra_compressed_path,
+                            vcodec="libx264",
+                            crf=32,  
+                            preset="fast",
+                            vf="scale=480:-2", 
+                            acodec="aac",
+                            ab="96k",  
+                            maxrate="500k",
+                            bufsize="1M"
+                        )
+                        ffmpeg.run(stream, overwrite_output=True, quiet=True)
+                        
+                        if os.path.exists(ultra_compressed_path):
+                            final_video_path = ultra_compressed_path
+                            file_size = os.path.getsize(final_video_path)
+                            file_size_mb = file_size / (1024 * 1024)
+                            print(f"Ultra compression: {file_size_mb:.1f}MB")
+                    except Exception as e:
+                        print(f"Ultra compression failed: {e}")
+                
+                # Clean up 
+                if final_video_path != video_path and os.path.exists(video_path):
+                    try:
+                        os.remove(video_path)
+                        print("Cleaned up original uncompressed file")
+                    except:
+                        pass
+                    
                 PUBLIC_BASE_URL = "https://video-generation-web-app-production.up.railway.app"
                 update_job_data(job_id, {
                     "status": "completed",
-                    "message": "✅ Video generated successfully!",
+                    "message": "Yay, Video generated successfully!",
                     "video_url": f"{PUBLIC_BASE_URL}/api/download/{job_id}",
                     "video_path": video_path
                 })
@@ -794,14 +966,14 @@ async def video_generation_process(job_id: str, prompt: str, user_phone: str = N
         raise Exception(f"Vidu API failed: {response.status_code} - {response.text}")
         
     except Exception as vidu_error:
-        print(f"⚠️ Vidu API failed: {vidu_error}")
+        print(f" Vidu API failed: {vidu_error}")
         
     
         if task_id:
-            print(f"🔄 Failed task ID: {task_id}")
+            print(f" Failed task ID: {task_id}")
         
         
-        print("📼 Using HuggingFace fallback")
+        print("Using HuggingFace fallback")
         await use_huggingface_fallback(job_id, prompt)
 
 async def get_vidu_credits():
@@ -845,6 +1017,8 @@ async def get_vidu_credits():
     except Exception as e:
         print(f"Failed to get Vidu credits: {e}")
         return None, None
+    
+
 
 def calculate_videos_remaining(credits: int) -> dict:
     """Calculate how many videos can be generated with remaining credits"""
