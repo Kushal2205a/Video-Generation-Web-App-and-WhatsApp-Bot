@@ -600,7 +600,10 @@ async def whatsapp_webhook(
 • `/help` - Show commands menu  
 • `/status` - Check bot status
 • `/history` - View recent prompts
-• `/credits` - Check no of credits left 
+• `/credits` - Check no of credits left
+• `/suggestions` - Get personalized video prompts based on user history
+• `/clear` - Reset conversation history for privacy
+ 
 
 
 *Example:*
@@ -767,7 +770,9 @@ Other commands:
 /help - Show help
 /status - Bot status
 /credits - To show no of credits
-/history - To show prompt history"""
+/history - To show prompt history
+/suggestions - Get personalized video prompts based on user history
+/clear - Reset conversation history for privacy"""
             send_whatsapp_message(user_phone, help_text)
             return {"status": "help_sent"}
         
@@ -800,6 +805,8 @@ def handle_whatsapp_command(command: str, user_phone: str) -> str:
 /status - Bot status
 /credits - check no of credits left
 /history - To show prompt history
+/suggestions - Get personalized video prompts based on user history
+/clear - Reset conversation history for privacy
 
 *Examples:*
 /generate A golden retriever playing in a park
@@ -864,6 +871,9 @@ Available commands:
 /status - Check status
 /credits - check no of credits left
 /history - To show prompt history
+/clear - Reset conversation history for privacy
+/suggestions - Get personalized video prompts based on user history
+
 
 Example: /generate A cat dancing"""
 
