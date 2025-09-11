@@ -674,7 +674,8 @@ Type /help for usage instructions"""
         if not redis_client:
             return " History unavailable (Redis not connected)"
         
-        pattern = "job:*"
+        clean_phone = user_phone.replace("whatsapp:", "").replace("+", "").replace("-", "").replace(" ", "")
+        pattern = f"user_job:{clean_phone}:*"
         job_keys = redis_client.keys(pattern)
         
         if not job_keys:
@@ -762,7 +763,7 @@ async def handle_whatsapp_video_generation(prompt: str, user_phone: str):
             "prompt": prompt,
             "user_phone": user_phone
         }
-        store_job_data(job_id, job_data)
+        store_job_data(job_id, job_data, user_phone)
         
         # Send progress update
         await asyncio.sleep(5)
@@ -792,17 +793,27 @@ async def handle_whatsapp_video_generation(prompt: str, user_phone: str):
         )
 
 # HELPER FUNCTIONS
-def store_job_data(job_id: str, data: dict):
-    """Store job data in Redis or fallback to memory"""
+def store_job_data(job_id: str, data: dict, user_phone: str = None):
+    """Store job data in Redis or fallback to memory with user association"""
     if redis_client:
         try:
+            # Store job data 
             redis_client.setex(f"job:{job_id}", 3600, json.dumps(data))
+            
+        
+            if user_phone:
+            
+                clean_phone = user_phone.replace("whatsapp:", "").replace("+", "").replace("-", "").replace(" ", "")
+                # Store user-job association with same expiry
+                redis_client.setex(f"user_job:{clean_phone}:{job_id}", 3600, json.dumps(data))
+            
             return
         except Exception as e:
             print(f"Redis store failed: {e}")
     
     # Fallback to memory (if redis not working)
     VIDEO_GENERATION_STATUS[job_id] = data
+
 
 def get_job_data(job_id: str) -> Optional[dict]:
     """Get job data from Redis or fallback to memory"""
@@ -822,7 +833,8 @@ def update_job_data(job_id: str, updates: dict):
     current_data = get_job_data(job_id)
     if current_data:
         current_data.update(updates)
-        store_job_data(job_id, current_data)
+        user_phone=current_data.get("user_phone")
+        store_job_data(job_id, current_data,user_phone)
 
 # PROGRESS UPDATE
 async def send_progress_update(user_phone: str, message: str):
