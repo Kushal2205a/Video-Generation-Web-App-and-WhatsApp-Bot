@@ -12,7 +12,9 @@ from app.services.redis_service import (
     get_rate_limit_message, generate_contextual_response, get_smart_suggestions
 )
 from app.utils.filters import comprehensive_content_filter
-from app.services.video_service import *
+# inside the block
+
+
 
 from app.config import twilio_client, redis_client
 
@@ -73,7 +75,10 @@ async def whatsapp_webhook(
         send_whatsapp_message(user_phone, clear_response)
         return {"status": "history_cleared"}
  
-    
+    # inside the block
+    from app.services.video_service import get_vidu_credits, calculate_videos_remaining,enhance_prompt_free
+    remaining, package_info = await get_vidu_credits()
+
     if message_text.lower() == '/credits':
         remaining, package_info = await get_vidu_credits()
         
@@ -113,7 +118,8 @@ async def whatsapp_webhook(
         send_whatsapp_message(user_phone, credits_message)
         return {"status": "credits_sent"}
     if not redis_client.get(f"user_welcomed:{user_phone}"):
-        welcome_text = """ *Welcome*
+        if not Body.strip().startswith("/"):
+            welcome_text = """  *Welcome*
 
 *Available Commands:*
 • `/generate <prompt>` - Create AI video
@@ -128,12 +134,17 @@ async def whatsapp_webhook(
 
 *Example:*
 Just type: `/generate dancing robot`
-"""
-        
-        send_whatsapp_message(user_phone, welcome_text)
-        
-        # Mark user as welcomed
-        redis_client.set(f"user_welcomed:{user_phone}", "1", ex=604800)
+""" 
+            send_whatsapp_message(user_phone, welcome_text)
+            redis_client.set(f"user_welcomed:{user_phone}", "1", ex=604800)
+        else:
+            # mark as welcomed so command isn't blocked next time
+            redis_client.set(f"user_welcomed:{user_phone}", "1", ex=604800)
+            
+            send_whatsapp_message(user_phone, welcome_text)
+            
+            # Mark user as welcomed
+            redis_client.set(f"user_welcomed:{user_phone}", "1", ex=604800)
     
     try:
             # NEW: Check if user is in a conversation state
