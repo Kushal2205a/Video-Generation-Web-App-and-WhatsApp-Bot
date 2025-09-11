@@ -1,4 +1,5 @@
 import shutil
+import subprocess
 import os
 import asyncio
 import uuid
@@ -27,66 +28,82 @@ from pathlib import Path
 app = FastAPI(title="AI Video Generator API")
 
 async def compress_video(input_path: str, output_path: str, quality: str = "medium") -> str:
-    """
-    Compress video using FFmpeg
-    """
+    
+    # Check if FFmpeg is available
+    ffmpeg_cmd = shutil.which('ffmpeg')
+    if not ffmpeg_cmd:
+        print("FFmpeg not found in PATH")
+        return input_path
+    
+    print(f"Using FFmpeg at: {ffmpeg_cmd}")
     
     # Quality presets
     compression_settings = {
-        "whatsapp": {
-            "vcodec": "libx264",
-            "crf": 28,
-            "preset": "medium",
-            "vf": "scale='min(720,iw)':'min(720,ih)':force_original_aspect_ratio=decrease",
-            "acodec": "aac",
-            "ab": "128k",
-            "maxrate": "1M",
-            "bufsize": "2M"
-        },
-        "low": {
-            "vcodec": "libx264", 
-            "crf": 32,
-            "preset": "fast",
-            "vf": "scale=480:-2",
-            "acodec": "aac",
-            "ab": "96k"
-        },
-        "medium": {
-            "vcodec": "libx264",
-            "crf": 23,
-            "preset": "medium", 
-            "vf": "scale=720:-2",
-            "acodec": "aac",
-            "ab": "128k"
-        },
-        "high": {
-            "vcodec": "libx264",
-            "crf": 18,
-            "preset": "slow",
-            "acodec": "aac", 
-            "ab": "192k"
-        }
+        "whatsapp": [
+            "-c:v", "libx264",
+            "-crf", "28",
+            "-preset", "medium",
+            "-vf", "scale='min(720,iw)':'min(720,ih)':force_original_aspect_ratio=decrease",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-maxrate", "1M",
+            "-bufsize", "2M"
+        ],
+        "medium": [
+            "-c:v", "libx264",
+            "-crf", "23",
+            "-preset", "medium",
+            "-vf", "scale=720:-2",
+            "-c:a", "aac",
+            "-b:a", "128k"
+        ]
     }
     
-    settings = compression_settings.get(quality, compression_settings["medium"])
+    settings = compression_settings.get(quality, compression_settings["whatsapp"])
     
     try:
-        # Build FFmpeg command
-        stream = ffmpeg.input(input_path)
-        stream = ffmpeg.output(
-            stream, 
-            output_path,
-            **settings
-        )
+        
+        cmd = [
+            ffmpeg_cmd,
+            "-i", input_path,
+            "-y",  
+            "-loglevel", "error" 
+        ] + settings + [output_path]
+        
+        print(f" Running compression: {' '.join(cmd[:5])}...")
         
         # Run compression
-        ffmpeg.run(stream, overwrite_output=True, quiet=True)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300  
+        )
         
-        return output_path
-        
-    except ffmpeg.Error as e:
-        print(f"FFmpeg compression failed: {e}")
-        return input_path  # Return original if compression fails
+        if result.returncode == 0:
+            if os.path.exists(output_path):
+                original_size = os.path.getsize(input_path)
+                compressed_size = os.path.getsize(output_path)
+                compression_ratio = (1 - compressed_size/original_size) * 100
+                
+                print(f"Compression successful!")
+                print(f"Size: {original_size/1024/1024:.1f}MB → {compressed_size/1024/1024:.1f}MB ({compression_ratio:.1f}% reduction)")
+                
+                return output_path
+            else:
+                print("Compression failed - output file not created")
+                return input_path
+        else:
+            print(f"FFmpeg failed with code {result.returncode}")
+            print(f"Error: {result.stderr}")
+            return input_path
+            
+    except subprocess.TimeoutExpired:
+        print("Compression timeout after 5 minutes")
+        return input_path
+    except Exception as e:
+        print(f"Compression exception: {e}")
+        return input_path
 
 def enhance_prompt_free(prompt: str) -> str:
     """Free rule-based prompt enhancement"""
@@ -904,14 +921,7 @@ I'll keep you updated""")
                         " **Video Generated Successfully!** Now optimizing for WhatsApp...")
                 
                 print("Starting video compression...")
-                
-                # Compressed filename
-                base_name = os.path.splitext(video_path)[0]
-                compressed_path = f"{base_name}_compressed.mp4"
-                
-                # Compress video 
-                final_video_path = await compress_video(video_path, compressed_path, "whatsapp")
-                
+                 
                 # Check file size 
                 file_size = os.path.getsize(final_video_path)
                 file_size_mb = file_size / (1024 * 1024)
@@ -919,33 +929,11 @@ I'll keep you updated""")
                 # Aggressive compression if still too large
                 if file_size > 15 * 1024 * 1024:  # 15MB
                     print(f"File still large ({file_size_mb:.1f}MB), applying aggressive compression...")
-                    ultra_compressed_path = f"{base_name}_ultra.mp4"
+                    base_name = os.path.splitext(video_path)[0]
+                    compressed_path = f"{base_name}_ultra.mp4"
+                    final_video_path = await compress_video(video_path, compressed_path, "whatsapp")
                     
-                    try:
-                        stream = ffmpeg.input(video_path)
-                        stream = ffmpeg.output(
-                            stream, 
-                            ultra_compressed_path,
-                            vcodec="libx264",
-                            crf=32,  
-                            preset="fast",
-                            vf="scale=480:-2", 
-                            acodec="aac",
-                            ab="96k",  
-                            maxrate="500k",
-                            bufsize="1M"
-                        )
-                        ffmpeg.run(stream, overwrite_output=True, quiet=True)
-                        
-                        if os.path.exists(ultra_compressed_path):
-                            final_video_path = ultra_compressed_path
-                            file_size = os.path.getsize(final_video_path)
-                            file_size_mb = file_size / (1024 * 1024)
-                            print(f"Ultra compression: {file_size_mb:.1f}MB")
-                    except Exception as e:
-                        print(f"Ultra compression failed: {e}")
-                
-                # Clean up 
+                    
                 if final_video_path != video_path and os.path.exists(video_path):
                     try:
                         os.remove(video_path)
