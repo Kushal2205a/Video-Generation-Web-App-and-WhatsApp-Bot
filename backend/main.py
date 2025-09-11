@@ -150,7 +150,7 @@ def clear_user_state(user_phone: str):
 
 
 
-# Comprehensive banned words database
+# Banned words database
 BANNED_WORDS = [
     # Explicit content
     "sex", "porn", "nude", "naked", "erotic", "xxx", "adult", "nsfw",
@@ -172,20 +172,20 @@ BANNED_WORDS = [
     "scam", "fraud", "cheat", "lie", "steal", "gore", "torture", "abuse"
 ]
 
-# Create regex pattern for banned words
+# Regex pattern for banned words
 banned_pattern = re.compile(r'\b(' + '|'.join(re.escape(word) for word in BANNED_WORDS) + r')\b', re.IGNORECASE)
 
 def comprehensive_content_filter(prompt: str) -> tuple[bool, str]:
     # Length validation (Vidu API limit)
     if len(prompt.strip()) < 5:
-        return False, "🤔 **Prompt too short!** Please describe your video idea in detail."
+        return False, " *Prompt too short* Please describe your video idea in detail."
     
     if len(prompt) > 1500:
-        return False, f"📝 **Prompt too long!** Vidu accepts max 1500 characters.\n**Current:** {len(prompt)} characters"
+        return False, f" *Prompt too long* Vidu accepts max 1500 characters.\n*Current:* {len(prompt)} characters"
     
     # Banned words check
     if banned_pattern.search(prompt):
-        return False, "🚫 **Content policy violation.** Please use family-friendly, appropriate language for your video prompt."
+        return False, " *Content policy violation.* Please use family-friendly, appropriate language for your video prompt."
     
     # Leetspeak detection
     leetspeak_patterns = [
@@ -197,18 +197,18 @@ def comprehensive_content_filter(prompt: str) -> tuple[bool, str]:
     
     for pattern in leetspeak_patterns:
         if re.search(pattern, prompt, re.IGNORECASE):
-            return False, "🚫 **Inappropriate content detected.** Please rephrase your prompt using appropriate language."
+            return False, " *Inappropriate content detected.* Please rephrase your prompt using appropriate language."
     
     # Repetition/spam check
     words = prompt.lower().split()
     if len(words) > 5:
         unique_ratio = len(set(words)) / len(words)
         if unique_ratio < 0.4:
-            return False, "🔄 **Too repetitive.** Please make your prompt more varied and descriptive!"
+            return False, " *Too repetitive.* Please make your prompt more varied and descriptive "
     
     # Character repetition check
     if re.search(r'(.)\1{4,}', prompt):
-        return False, "🔤 **Invalid format.** Please avoid excessive character repetition!"
+        return False, "*Invalid format.* Please avoid excessive character repetition"
     
     # All checks passed
     return True, ""
@@ -236,16 +236,16 @@ def get_rate_limit_message(user_phone: str) -> str:
     
     if ttl > 0:
         minutes = ttl // 60
-        return f"""⏳ **Whoa there, speedy!** 
+        return f""" *Whoa there,* 
 
-You've hit the rate limit of **10 messages per hour**.
+You've hit the rate limit of *10 messages per hour*.
 
-**Try again in:** {minutes} minutes
-**Why limits?** Keeps the bot fast for everyone!
+*Try again in:* {minutes} minutes
+*Why limits?* Keeps the bot fast for everyone
 
-Thanks for understanding! 😊"""
+Thanks for understanding"""
     else:
-        return "⏳ **Rate limit active.** Please wait a moment before sending more messages."
+        return " *Rate limit active.* Please wait a moment before sending more messages."
 
     
     
@@ -258,6 +258,8 @@ try:
 except Exception as e:
     print(f"Redis connection failed: {e}")
     redis_client = None
+    
+    
 # Twilio client
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN") 
@@ -288,8 +290,8 @@ class Status_Response(BaseModel):
     message: str
     video_url: Optional[str] = None
 
-# ========== EXISTING WEB APP ROUTES (UNCHANGED) ==========
 
+# WEB APP ROUTES
 app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/", response_class=HTMLResponse)
 async def serve_html():
@@ -318,7 +320,7 @@ async def generate_video(request: Video_Request):
 
     job_id = str(uuid.uuid4())
     
-    # Store in Redis if available, otherwise use memory
+    # Store in Redis
     job_data = {
         "status": "processing",
         "message": "Video generation has started",
@@ -373,8 +375,8 @@ async def download_video(job_id: str):
         }
     )
 
-# ========== NEW WHATSAPP BOT FUNCTIONALITY ==========
 
+# WHATSAPP BOT FUNCTIONALITY 
 @app.post("/webhook/whatsapp")
 async def whatsapp_webhook(
     background_tasks: BackgroundTasks,
@@ -388,13 +390,13 @@ async def whatsapp_webhook(
     """Handle incoming WhatsApp messages"""
     
     if not twilio_client:
-        print("❌ Twilio client not available")
+        print(" Twilio client not available")
         return {"status": "error", "message": "Service unavailable"}
     
     user_phone = From
     message_text = Body.strip()
     
-    print(f"📱 WhatsApp message from {user_phone}: {message_text}")
+    print(f" WhatsApp message from {user_phone}: {message_text}")
     
     if is_user_rate_limited(user_phone):
         rate_limit_msg = get_rate_limit_message(user_phone)
@@ -418,21 +420,18 @@ async def whatsapp_webhook(
                     if pkg['queue_count'] > 0:
                         package_details += f"\n  - In queue: {pkg['queue_count']}"
             
-            credits_message = f"""💳 **Vidu API Credits Status**
+            credits_message = f""" *Vidu API Credits Status*
 
-🎬 **Total Remaining Credits:** {remaining}
+*Total Remaining Credits:* {remaining}
 
-📦 **Package Details:**{package_details}
+*Package Details:*{package_details}
 
-**🎥 Videos You Can Generate:**
-• **4-second videos:** {videos_left['No of credits left']} videos left
-
-
-💡 **Note:** Credit costs may vary by video length and quality settings.
+*🎥 Videos You Can Generate:*
+*4-second videos:* {videos_left['No of credits left']} videos left
 """
         
         else:
-            credits_message = """❌ **Unable to check credits**
+            credits_message = """ *Unable to check credits*
 
     Could not connect to Vidu API. Please check:
     - API key is configured correctly
@@ -444,19 +443,19 @@ async def whatsapp_webhook(
         send_whatsapp_message(user_phone, credits_message)
         return {"status": "credits_sent"}
     if not redis_client.get(f"user_welcomed:{user_phone}"):
-        welcome_text = """ **Welcome to AI Video Bot!**
+        welcome_text = """ *Welcome*
 
-🎬 **Available Commands:**
+*Available Commands:*
 • `/generate <prompt>` - Create AI video
 • `/help` - Show commands menu  
-• `/status` - Check your videos
-• `/history` - View recent videos
-• `/enhance <prompt>` - Auto-improve prompt
+• `/status` - Check bot status
+• `/history` - View recent prompts
+• `/credits` - Check no of credits left 
 
-💡 **Quick Start:**
+
+*Example:*
 Just type: `/generate dancing robot`
-
-Let's create amazing videos together! ✨"""
+"""
         
         send_whatsapp_message(user_phone, welcome_text)
         
@@ -475,6 +474,7 @@ Let's create amazing videos together! ✨"""
             if state == "awaiting_enhancement_choice":
                 if message_text in ['1', '2', '3']:
                     if message_text == '1':
+                        
                         # User chose enhanced prompt
                         final_prompt = data["enhanced_prompt"]
                         response_msg = f"✨ **Using enhanced prompt:**\n{final_prompt[:80]}{'...' if len(final_prompt) > 80 else ''}\n\n🎬 Starting video generation..."
@@ -486,19 +486,19 @@ Let's create amazing videos together! ✨"""
                     elif message_text == '2':
                         # User chose original prompt
                         final_prompt = data["original_prompt"]
-                        response_msg = f"📝 **Using original prompt:**\n{final_prompt}\n\n🎬 Starting video generation..."
+                        response_msg = f" *Using original prompt:*\n{final_prompt}\n\n Starting video generation..."
                         send_whatsapp_message(user_phone, response_msg)
                         clear_user_state(user_phone)
                         background_tasks.add_task(handle_whatsapp_video_generation, final_prompt, user_phone)
                         return {"status": "generating_original"}
                         
-                    else:  # message_text == '3' - Edit option
-                        edit_msg = f"""✏️ **Edit your prompt:**
+                    else:  # User Chose to edit option 
+                        edit_msg = f""" **Edit your prompt:**
 
     **Current enhanced version:**
     {data['enhanced_prompt']}
 
-    **Type your edited prompt below:** 👇"""
+    *Type your edited prompt below:* """
                         send_whatsapp_message(user_phone, edit_msg)
                         store_user_state(user_phone, "awaiting_user_edit", {
                             "original_prompt": data["original_prompt"],
@@ -506,7 +506,7 @@ Let's create amazing videos together! ✨"""
                         })
                         return {"status": "awaiting_edit"}
                 else:
-                    send_whatsapp_message(user_phone, "❓ Please reply with:\n**1** (YES), **2** (NO) or **3** (EDIT)")
+                    send_whatsapp_message(user_phone, " Please reply with:\n*1* (YES), *2* (NO) or *3* (EDIT)")
                     return {"status": "invalid_choice"}
             
             elif state == "awaiting_user_edit":
@@ -514,25 +514,26 @@ Let's create amazing videos together! ✨"""
                 edited_prompt = message_text.strip()
                 
                 if len(edited_prompt) < 5:
-                    send_whatsapp_message(user_phone, "❓ Your edited prompt is too short. Please try again:")
+                    send_whatsapp_message(user_phone, " Your edited prompt is too short. Please try again:")
                     return {"status": "edit_too_short"}
                 
-                response_msg = f"📝 **Using your edited prompt:**\n{edited_prompt[:80]}{'...' if len(edited_prompt) > 80 else ''}\n\n🎬 Starting video generation..."
+                response_msg = f" *Using your edited prompt:*\n{edited_prompt[:80]}{'...' if len(edited_prompt) > 80 else ''}\n\n Starting video generation..."
                 send_whatsapp_message(user_phone, response_msg)
                 clear_user_state(user_phone)
                 background_tasks.add_task(handle_whatsapp_video_generation, edited_prompt, user_phone)
                 return {"status": "generating_edited"}
+            
+            
         # Handle commands
-        
         if message_text.startswith('/generate '):
-            prompt = message_text[10:].strip()  # Remove '/generate '
+            prompt = message_text[10:].strip()  
             
             if len(prompt) < 5:
-                error_msg = """🤔 Your prompt seems too short!
+                error_msg = """ Your prompt seems too short.
 
         Try: /generate A cute cat playing piano in space
 
-        Make it more descriptive for better results!"""
+        Make it more descriptive for better results """
         
                 send_whatsapp_message(user_phone, error_msg)
                 return {"status": "prompt_too_short"}
@@ -541,11 +542,11 @@ Let's create amazing videos together! ✨"""
     
             if remaining is not None:
                 if remaining < 4:  # Minimum credits needed
-                    low_credits_msg = f"""⚠️ **Insufficient Credits**
+                    low_credits_msg = f""" *Insufficient Credits*
 
-You have **{remaining} credits** remaining, but need at least **4 credits** to generate a video.
+You have *{remaining} credits* remaining, but need at least *4 credits* to generate a video.
 
-🔄 **Options:**
+ *Options:*
 - Wait for credit renewal
 - Purchase additional credits at https://platform.vidu.com
 - Use `/credits` to check detailed status"""
@@ -554,33 +555,33 @@ You have **{remaining} credits** remaining, but need at least **4 credits** to g
                     return {"status": "insufficient_credits"}
                 
                 # Show credits info with generation start
-                credits_info = f"\n\n **Credits:** ~{remaining-4} remaining after generation"
+                credits_info = f"\n\n *Credits:* ~{remaining-4} remaining after generation"
             else:
-                credits_info = "\n\n **Credits:** Unable to check current balance"
+                credits_info = "\n\n *Credits:* Unable to check current balance"
                 
             
             is_safe, filter_error = comprehensive_content_filter(prompt)
             if not is_safe:
                 send_whatsapp_message(user_phone, filter_error)
-                print(f"🚫 Content blocked from {user_phone}: {prompt[:50]}...")
+                print(f" Content blocked from {user_phone}: {prompt[:50]}...")
                 return {"status": "content_blocked"}
             
             # Generate enhanced version
             enhanced_prompt = enhance_prompt_free(prompt)
             
             # Ask user for enhancement choice
-            choice_msg = f"""✨ **Enhance your prompt for better video quality?**
+            choice_msg = f"""✨ *Enhance your prompt for better video quality?*
 
-        **Original:** {prompt}
+        *Original:* {prompt}
 
-        **Enhanced:** {enhanced_prompt[:120]}{'...' if len(enhanced_prompt) > 120 else ''}
+        *Enhanced:* {enhanced_prompt[:120]}{'...' if len(enhanced_prompt) > 120 else ''}
 
-        **Choose an option:**
-        1️⃣ **YES** - Use enhanced version (recommended)
-        2️⃣ **NO** - Keep original
-        3️⃣ **EDIT** - Edit enhanced version
+        *Choose an option:*
+        1️⃣ *YES* - Use enhanced version (recommended)
+        2️⃣ *NO* - Keep original
+        3️⃣ *EDIT* - Edit enhanced version
 
-        Reply with **1**, **2**, or **3**"""
+        Reply with *1*, *2*, or *3* """
             
             # Store state
             store_user_state(user_phone, "awaiting_enhancement_choice", {
@@ -599,7 +600,7 @@ You have **{remaining} credits** remaining, but need at least **4 credits** to g
         
         # If not a command, suggest using /generate
         if not message_text.startswith('/generate'):
-            help_text = """👋 Welcome to the AI Video Bot!
+            help_text = """ Heya there, *Welcome* 
 
 To generate a video, use:
 /generate <your prompt>
@@ -609,7 +610,9 @@ Example:
 
 Other commands:
 /help - Show help
-/status - Bot status"""
+/status - Bot status
+/credits - To show no of credits
+/history - To show prompt history"""
             send_whatsapp_message(user_phone, help_text)
             return {"status": "help_sent"}
         
@@ -618,13 +621,13 @@ Other commands:
         # Invalid /generate usage
         send_whatsapp_message(
             user_phone, 
-            "❓ Use: /generate <your prompt>\n\nExample: /generate A sunset over mountains"
+            " Use: /generate <your prompt>\n\nExample: /generate A sunset over mountains"
         )
         return {"status": "invalid_command"}
         
     except Exception as e:
-        print(f"❌ WhatsApp webhook error: {e}")
-        send_whatsapp_message(user_phone, "❌ Sorry, something went wrong. Please try again.")
+        print(f" WhatsApp webhook error: {e}")
+        send_whatsapp_message(user_phone, " Sorry, something went wrong. Please try again.")
         return {"status": "error", "message": str(e)}
 
 def handle_whatsapp_command(command: str, user_phone: str) -> str:
@@ -632,21 +635,23 @@ def handle_whatsapp_command(command: str, user_phone: str) -> str:
     command = command.lower().strip()
     
     if command == '/help':
-        return """🤖 **AI Video Bot Help**
+        return """ *AI Video Bot Help*
 
-**Generate Videos:**
+*Generate Videos:*
 /generate <your prompt>
 
-**Commands:**
+*Commands:*
 /help - Show this help
 /status - Bot status
+/credits - check no of credits left
+/history - To show prompt history
 
-**Examples:**
+*Examples:*
 /generate A golden retriever playing in a park
 /generate Astronaut floating in space
 /generate Ocean waves at sunset
 
-**Tips:**
+*Tips:*
 • Be descriptive (min 5 words)
 • Include actions, settings, objects
 • Videos take around 3 minutes to generate"""
@@ -667,15 +672,15 @@ Type /help for usage instructions"""
 
     elif command == '/history':
         if not redis_client:
-            return "❌ History unavailable (Redis not connected)"
+            return " History unavailable (Redis not connected)"
         
         pattern = "job:*"
         job_keys = redis_client.keys(pattern)
         
         if not job_keys:
-            return "📭 No video history found."
+            return " No video history found."
         
-        response_lines = [" **Your Recent Prompts:**"]
+        response_lines = [" *Your Recent Prompts:* "]
         
         for key in sorted(job_keys, reverse=True)[:5]:  # Last 5 jobs
             job_data = redis_client.get(key)
@@ -683,7 +688,21 @@ Type /help for usage instructions"""
                 job = json.loads(job_data)
                 status = job.get("status", "unknown").capitalize()
                 prompt = job.get("prompt", "")[:30] + ("..." if len(job.get("prompt", "")) > 30 else "")
-                line = f"- **{status}**: {prompt}"
+                video_url = job.get("video_url")
+                
+                job_id = key.replace("job:", "")
+                line = f"- *{status}*: {prompt}"
+                
+                if status.lower() == "completed" and video_url:
+                # Create full URL for the video
+                    full_url = f"https://video-generation-web-app-production.up.railway.app/api/download/{job_id}"
+                    line += f" [Watch]({full_url})"
+                elif status.lower() == "completed":
+                    line += " Video unavailable"
+                elif status.lower() == "processing":
+                    line += " Still generating..."
+                elif status.lower() == "failed":
+                    line += " Generation failed"
                 response_lines.append(line)
         
         return "\n".join(response_lines)
@@ -692,12 +711,14 @@ Type /help for usage instructions"""
     
     
     else:
-        return """❓ Unknown command
+        return """ Unknown command
 
 Available commands:
 /help - Show help
 /generate <prompt> - Create video
 /status - Check status
+/credits - check no of credits left
+/history - To show prompt history
 
 Example: /generate A cat dancing"""
 
@@ -720,16 +741,16 @@ def send_whatsapp_message(to: str, body: str, media_url: str = None):
         return message
         
     except Exception as e:
-        print(f"❌ Failed to send WhatsApp message: {e}")
+        print(f" Failed to send WhatsApp message: {e}")
         return None
 
 async def handle_whatsapp_video_generation(prompt: str, user_phone: str):
-    """Handle video generation workflow for WhatsApp"""
+    """Handle video generation for WhatsApp"""
     try:
-        # Send acknowledgment
+        
         send_whatsapp_message(
             user_phone, 
-            f"🎬 Generating your video: '{prompt}'\n\nThis usually takes around 3 minutes..."
+            f" Generating your video: '{prompt}'\n\nThis usually takes around 3 minutes..."
         )
         
         # Create job
@@ -745,7 +766,7 @@ async def handle_whatsapp_video_generation(prompt: str, user_phone: str):
         
         # Send progress update
         await asyncio.sleep(5)
-        send_whatsapp_message(user_phone, "🤖 AI model is working on your video...")
+        send_whatsapp_message(user_phone, "Your video is being processed...")
         
         # Generate video
         await video_generation_process(job_id, prompt, user_phone)
@@ -760,18 +781,17 @@ async def handle_whatsapp_video_generation(prompt: str, user_phone: str):
         else:
             send_whatsapp_message(
                 user_phone,
-                "❌ Video generation failed. Please try again with a different prompt."
+                " Video generation failed. Please try again with a different prompt."
             )
         
     except Exception as e:
-        print(f"❌ WhatsApp video generation failed: {e}")
+        print(f" WhatsApp video generation failed: {e}")
         send_whatsapp_message(
             user_phone,
-            "❌ Sorry, video generation failed. Please try again."
+            " Sorry, video generation failed. Please try again."
         )
 
-# ========== HELPER FUNCTIONS ==========
-
+# HELPER FUNCTIONS
 def store_job_data(job_id: str, data: dict):
     """Store job data in Redis or fallback to memory"""
     if redis_client:
@@ -781,7 +801,7 @@ def store_job_data(job_id: str, data: dict):
         except Exception as e:
             print(f"Redis store failed: {e}")
     
-    # Fallback to memory
+    # Fallback to memory (if redis not working)
     VIDEO_GENERATION_STATUS[job_id] = data
 
 def get_job_data(job_id: str) -> Optional[dict]:
@@ -821,16 +841,16 @@ async def video_generation_process(job_id: str, prompt: str, user_phone: str = N
     final_video_path = None # Initialize final_video_path
     
     try:
-        print(f"🎬 Starting video generation: {prompt}")
+        print(f" Starting video generation: {prompt}")
         
         if user_phone:
             await send_progress_update(user_phone, 
-                f"""🎬 **Video Generation Started!**
+                f""" *Video Generation Started*
                 
-**Your prompt:** {prompt}
+*Your prompt:* {prompt}
 
-**Status:** Connecting to AI model...
-**Estimated time:** 2-3 minutes
+*Status:* Connecting to AI model...
+*Estimated time:* 2-3 minutes
 I'll keep you updated""")
         
         # Status Update 1 
@@ -870,9 +890,9 @@ I'll keep you updated""")
         
         if user_phone:
             await send_progress_update(user_phone, 
-                " **Connected** Sending your video request...")
+                " *Connected* Sending your video request...")
         
-        print("📡 Sending request to Vidu API...")
+        print(" Sending request to Vidu API...")
         response = requests.post(
             f"{vidu_base_url}/ent/v2/text2video",
             headers=headers,
@@ -880,7 +900,7 @@ I'll keep you updated""")
             timeout=30
         )
         
-        print(f"📝 Vidu API Response Code: {response.status_code}")
+        print(f" Vidu API Response Code: {response.status_code}")
         
         if response.status_code == 200:
             result = response.json()
@@ -897,13 +917,13 @@ I'll keep you updated""")
 
         if user_phone:
             await send_progress_update(user_phone, 
-                    f"""✅ **Video Generation In Progress!**
-**AI Model:** Vidu 1.5
-**Task ID:** `{task_id[:8]}...`
-**Creating:** {prompt}
-**Next update:** ~90 seconds""")
-            
-            print(f"✅ Vidu task created: {task_id}")
+                    f""" *Video Generation In Progress*
+*AI Model:* Vidu 1.5
+*Task ID:* `{task_id[:8]}...`
+*Creating:* {prompt}
+*Next update:* ~90 seconds""")
+
+            print(f"Vidu task created: {task_id}")
         
             
             # Poll for completion
@@ -920,8 +940,8 @@ I'll keep you updated""")
                 
                 if user_phone:
                     await send_progress_update(user_phone, 
-                        " **Video Generated Successfully!** Now optimizing for WhatsApp...")
-                
+                        " *Video Generated Successfully!* Now optimizing for WhatsApp...")
+
                 print("Starting video compression...")
                  
                 # Check file size 
