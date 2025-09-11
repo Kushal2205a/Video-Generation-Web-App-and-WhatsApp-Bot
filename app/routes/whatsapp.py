@@ -252,8 +252,11 @@ You have *{remaining} credits* remaining, but need at least *4 credits* to gener
             
             is_safe, filter_error = comprehensive_content_filter(prompt)
             if not is_safe:
-                send_whatsapp_message(user_phone, filter_error)
-                print(f" Content blocked from {user_phone}: {prompt[:50]}...")
+                if filter_error and filter_error.strip():
+                    send_whatsapp_message(user_phone, filter_error)
+                else:
+                    send_whatsapp_message(user_phone, "❌ Content not allowed. Please try a different prompt.")
+                print(f"🚫 Content blocked from {user_phone}: {prompt[:50]}...")
                 return {"status": "content_blocked"}
             
             # Generate enhanced version
