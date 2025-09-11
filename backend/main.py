@@ -689,21 +689,10 @@ Type /help for usage instructions"""
                 job = json.loads(job_data)
                 status = job.get("status", "unknown").capitalize()
                 prompt = job.get("prompt", "")[:30] + ("..." if len(job.get("prompt", "")) > 30 else "")
-                video_url = job.get("video_url")
+            
                 
                 job_id = key.split(":")[-1]
                 line = f"- *{status}*: {prompt}"
-                
-                if status.lower() == "completed" and video_url:
-                # Create full URL for the video
-                    full_url = f"https://video-generation-web-app-production.up.railway.app/api/download/{job_id}"
-                    line += f" [Watch]({full_url})"
-                elif status.lower() == "completed":
-                    line += " Video unavailable"
-                elif status.lower() == "processing":
-                    line += " Still generating..."
-                elif status.lower() == "failed":
-                    line += " Generation failed"
                 response_lines.append(line)
         
         return "\n".join(response_lines)
