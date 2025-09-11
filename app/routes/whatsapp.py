@@ -185,9 +185,12 @@ Just type: `/generate dancing robot`
 
     *Type your edited prompt below:* """
                         send_whatsapp_message(user_phone, edit_msg)
-                        store_user_state(user_phone, "awaiting_user_edit", {
-                            "original_prompt": data["original_prompt"],
-                            "enhanced_prompt": data["enhanced_prompt"]
+                        store_user_state(user_phone, {
+                            "state": "awaiting_user_edit", 
+                            "data": {
+                                "original_prompt": data["original_prompt"],
+                                "enhanced_prompt": data["enhanced_prompt"]
+                            }
                         })
                         return {"status": "awaiting_edit"}
                 else:
@@ -277,10 +280,14 @@ You have *{remaining} credits* remaining, but need at least *4 credits* to gener
         Reply with *1*, *2*, or *3* """
             
             # Store state
-            store_user_state(user_phone, "awaiting_enhancement_choice", {
-                "original_prompt": prompt,
-                "enhanced_prompt": enhanced_prompt
+            store_user_state(user_phone, {
+                "state": "awaiting_enhancement_choice",
+                "data": {
+                    "original_prompt": data["original_prompt"],
+                    "enhanced_prompt": data["enhanced_prompt"]
+                }
             })
+
             
             send_whatsapp_message(user_phone, choice_msg)
             return {"status": "enhancement_choice_sent"}
