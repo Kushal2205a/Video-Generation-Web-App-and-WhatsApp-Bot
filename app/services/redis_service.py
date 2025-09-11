@@ -142,6 +142,78 @@ def is_user_rate_limited(user_phone: str, window_seconds: int = 60, max_calls: i
 def get_rate_limit_message(user_phone: str) -> str:
     return "You're sending requests too quickly. Please wait a moment."
 
+def analyze_user_preferences(user_phone: str) -> dict:
+    """
+    Lightweight analysis: returns a summary of recent prompts and counts.
+    This is intentionally simple and safe for initial deployment.
+    """
+    clean_phone = user_phone.replace("whatsapp:", "").replace("+", "").replace("-", "").replace(" ", "")
+    # try Redis list, fallback to memory USER_STATE
+    prompts = []
+    if redis_client:
+        try:
+            keys = redis_client.keys(f"user_job:{clean_phone}:*")
+            for k in sorted(keys, reverse=True)[:10]:
+                raw = redis_client.get(k)
+                if raw:
+                    job = json.loads(raw)
+                    p = job.get("prompt")
+                    if p:
+                        prompts.append(p)
+        except Exception:
+            pass
+    else:
+        state = USER_STATE.get(clean_phone, {})
+        for jid in state.get("jobs", [])[-10:]:
+            job = VIDEO_GENERATION_STATUS.get(jid)
+            if job:
+                p = job.get("prompt")
+                if p:
+                    prompts.append(p)
+
+    return {
+        "recent_prompts": prompts,
+        "prompt_count": len(prompts)
+    }
+
+def get_smart_suggestions(user_phone: str, n: int = 3) -> list:
+    """
+    Return n simple prompt-suggestions based on recent prompts.
+    This is intentionally naive: it appends style tweaks to recent prompts.
+    """
+    prefs = analyze_user_preferences(user_phone)
+    base = prefs.get("recent_prompts", [])
+    suggestions = []
+    for i, p in enumerate(base[:n]):
+        suggestions.append(f"{p} — cinematic lighting, smooth motion")
+    # if not enough, add some generic examples
+    generic = [
+        "A golden retriever playing in a park, cinematic lighting",
+        "Astronaut floating in space, stars in the background, slow motion",
+        "Ocean waves at sunset with seagulls flying"
+    ]
+    while len(suggestions) < n:
+        suggestions.append(generic[len(suggestions) - len(base) % len(generic)])
+    return suggestions[:n]
+
+def generate_contextual_response(user_phone: str, prompt: str = None) -> str:
+    """
+    Small wrapper to create a contextual reply using stored context and simple heuristics.
+    Returns a short, user-friendly string.
+    """
+    context = get_conversation_context(user_phone) or {}
+    prefs = analyze_user_preferences(user_phone)
+    suggestions = get_smart_suggestions(user_phone, n=2)
+
+    lines = []
+    if prompt:
+        lines.append(f"Got your prompt: \"{prompt}\".")
+    if prefs.get("prompt_count", 0) > 0:
+        lines.append(f"You've made {prefs['prompt_count']} recent prompts. Here are suggestions:")
+    lines += [f"- {s}" for s in suggestions]
+    if not lines:
+        lines = ["Hi — send a descriptive prompt (e.g. 'A cat playing piano in space')"]
+    return "\n".join(lines)
 # Export for other modules
 __all__ = [
     "VIDEO_GENERATION_STATUS",
