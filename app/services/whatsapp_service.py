@@ -94,23 +94,32 @@ Example: /generate A cat dancing"""
 def send_whatsapp_message(to: str, body: str, media_url: str = None):
     """Send WhatsApp message with optional media attachment"""
     try:
+        # Validate required parameters
+        if not body and not media_url:
+            print(f" Error: Cannot send empty message to {to}")
+            return None
+            
         message_data = {
             'from_': TWILIO_WHATSAPP_FROM,
-            'body': body,
             'to': to
         }
         
+        # Only add body if it's not empty
+        if body and body.strip():
+            message_data['body'] = body
+        
         # Add media URL if provided
         if media_url:
-            message_data['media_url'] = [media_url]  # Must be a list
+            message_data['media_url'] = [media_url]
         
         message = twilio_client.messages.create(**message_data)
-        print(f"📤 WhatsApp message sent to {to}: {message.sid}")
+        print(f" WhatsApp message sent to {to}: {message.sid}")
         return message
         
     except Exception as e:
         print(f" Failed to send WhatsApp message: {e}")
         return None
+
 
 async def handle_whatsapp_video_generation(prompt: str, user_phone: str):
     """Handle video generation for WhatsApp"""
