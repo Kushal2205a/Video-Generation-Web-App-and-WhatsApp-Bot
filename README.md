@@ -48,7 +48,7 @@ Both projects are built for **demonstration** and **production-ready** environme
 ## Architecture
 
 ### Web App
-![Architecture for the Video Generation Web App](assets/VGWA_architecture.svg)
+![Architecture for the Video Generation Web App](assets/Web_App Architecture.png)
 
 ### Whatsapp Bot
 ![Architecture for the Video Generation Whatsapp Bot](assets/Architecture.drawio.png)
