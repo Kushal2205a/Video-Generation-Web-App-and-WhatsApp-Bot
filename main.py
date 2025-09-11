@@ -5,7 +5,8 @@ from app.routes import web, whatsapp
 app = FastAPI(title="AI Video Generator API")
 
 # Mount static frontend
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
 
 # Attach routers
 app.include_router(web.router)

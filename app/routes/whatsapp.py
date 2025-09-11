@@ -2,8 +2,10 @@ from fastapi import APIRouter, Form, BackgroundTasks
 from app.services.whatsapp_service import (
     send_whatsapp_message,
     handle_whatsapp_command,
-    handle_whatsapp_video_generation
+    handle_whatsapp_video_generation,
+    send_progress_update
 )
+
 from app.services.redis_service import (
     store_user_state, get_user_state, clear_user_state,
     store_conversation_context, is_user_rate_limited,
@@ -15,6 +17,8 @@ from app.services.video_service import *
 from app.config import twilio_client, redis_client
 
 router = APIRouter()
+
+
 # WHATSAPP BOT FUNCTIONALITY 
 @router.post("/webhook/whatsapp")
 async def whatsapp_webhook(

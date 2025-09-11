@@ -1,6 +1,6 @@
 import uuid, asyncio
 from app.config import twilio_client, TWILIO_WHATSAPP_FROM, redis_client
-from app.services.redis_service import store_job_data, get_job_data, update_job_data
+from app.services.redis_service import store_job_data, get_job_data
 import json
 
 def handle_whatsapp_command(command: str, user_phone: str) -> str:
