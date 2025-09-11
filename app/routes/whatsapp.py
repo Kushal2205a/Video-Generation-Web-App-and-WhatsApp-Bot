@@ -150,6 +150,7 @@ Just type: `/generate dancing robot`
     try:
             # NEW: Check if user is in a conversation state
         user_state = get_user_state(user_phone)
+        data = {}
         
         # Handle state-based responses
         if user_state:
