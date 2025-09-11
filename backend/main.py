@@ -818,6 +818,7 @@ async def send_progress_update(user_phone: str, message: str):
 async def video_generation_process(job_id: str, prompt: str, user_phone: str = None):
     """Generate Video using Vidu API"""
     task_id = None  # Initialize task_id
+    final_video_path = None # Initialize final_video_path
     
     try:
         print(f"🎬 Starting video generation: {prompt}")
@@ -909,6 +910,7 @@ I'll keep you updated""")
             video_path = await poll_vidu_task(task_id, job_id, vidu_api_key, vidu_base_url)
             
             if video_path:
+                final_video_path = video_path
                 print("Starting video compression...")
                 update_job_data(job_id, {
                     "message": "Compressing video for optimal delivery...",
@@ -923,15 +925,16 @@ I'll keep you updated""")
                 print("Starting video compression...")
                  
                 # Check file size 
-                file_size = os.path.getsize(final_video_path)
-                file_size_mb = file_size / (1024 * 1024)
+                original_file_size = os.path.getsize(video_path)
+                original_file_size = original_file_size / (1024 * 1024)
                 
                 # Aggressive compression if still too large
-                if file_size > 15 * 1024 * 1024:  # 15MB
-                    print(f"File still large ({file_size_mb:.1f}MB), applying aggressive compression...")
+                if original_file_size > 15:  # 15MB
+                    print(f"File still large ({original_file_size:.1f}MB), applying aggressive compression...")
                     base_name = os.path.splitext(video_path)[0]
                     compressed_path = f"{base_name}_ultra.mp4"
                     final_video_path = await compress_video(video_path, compressed_path, "whatsapp")
+                
                     
                     
                 if final_video_path != video_path and os.path.exists(video_path):
