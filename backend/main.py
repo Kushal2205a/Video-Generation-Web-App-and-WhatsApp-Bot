@@ -691,7 +691,7 @@ Type /help for usage instructions"""
                 prompt = job.get("prompt", "")[:30] + ("..." if len(job.get("prompt", "")) > 30 else "")
                 video_url = job.get("video_url")
                 
-                job_id = key.replace("job:", "")
+                job_id = key.split(":")[-1]
                 line = f"- *{status}*: {prompt}"
                 
                 if status.lower() == "completed" and video_url:
