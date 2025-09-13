@@ -6,17 +6,16 @@ from typing import Optional, Dict, Any
 
 from app.config import redis_client
 
-# In-memory fallback if Redis is unavailable.
+# In-memory fallback
 VIDEO_GENERATION_STATUS: Dict[str, Dict[str, Any]] = {}
 USER_STATE: Dict[str, Dict[str, Any]] = {}
 CONVERSATION_CONTEXT: Dict[str, Any] = {}
 RATE_LIMITS: Dict[str, float] = {}
 
-JOB_TTL_SECONDS = 60 * 60 * 24  # 24 hours fallback TTL
+JOB_TTL_SECONDS = 60 * 60 * 24  # 24 hours fallback
 
-# -----------------------
-# Job storage (Redis or fallback)
-# -----------------------
+
+# Job storage 
 def store_job_data(job_id: str, data: dict, user_phone: Optional[str] = None) -> None:
     """Store job data in Redis or in-memory fallback."""
     payload = json.dumps(data)
@@ -53,9 +52,7 @@ def update_job_data(job_id: str, update: dict) -> None:
     current.update(update)
     store_job_data(job_id, current)
 
-# -----------------------
 # User state helpers
-# -----------------------
 def store_user_state(user_phone: str, state: dict) -> None:
     clean_phone = user_phone.replace("whatsapp:", "").replace("+", "").replace("-", "").replace(" ", "")
     if redis_client:
@@ -86,9 +83,8 @@ def clear_user_state(user_phone: str) -> None:
             print(f"Redis delete user state failed: {e}")
     USER_STATE.pop(clean_phone, None)
 
-# -----------------------
+
 # Conversation context
-# -----------------------
 def store_conversation_context(user_phone: str, key: str, value: dict) -> None:
     clean_phone = user_phone.replace("whatsapp:", "").replace("+", "").replace("-", "").replace(" ", "")
     if redis_client:
@@ -115,21 +111,23 @@ def get_conversation_context(user_phone: str, key: Optional[str] = None):
         return CONVERSATION_CONTEXT.get(clean_phone, {}).get(key)
     return CONVERSATION_CONTEXT.get(clean_phone, {})
 
-# -----------------------
-# Rate limiting (simple)
-# -----------------------
+
+# Rate limiting 
 def is_user_rate_limited(user_phone: str, window_seconds: int = 60, max_calls: int = 6) -> bool:
     clean_phone = user_phone.replace("whatsapp:", "").replace("+", "").replace("-", "").replace(" ", "")
     now_ts = time.time()
     if redis_client:
         try:
             key = f"rate:{clean_phone}"
-            # store timestamps in a Redis list (LPUSH + LTRIM) — simplified here:
             redis_client.lpush(key, now_ts)
+            length = redis_client.llen(key)
+            if length > max_calls:
+                redis_client.lpop(key)
+                redis_client.expire(key, window_seconds)
+                return True
             redis_client.ltrim(key, 0, max_calls - 1)
             redis_client.expire(key, window_seconds)
-            length = redis_client.llen(key)
-            return length > max_calls
+            return False 
         except Exception as e:
             print(f"Redis rate limit failed: {e} — falling back to memory")
     # memory fallback
@@ -144,8 +142,7 @@ def get_rate_limit_message(user_phone: str) -> str:
 
 def analyze_user_preferences(user_phone: str) -> dict:
     """
-    Lightweight analysis: returns a summary of recent prompts and counts.
-    This is intentionally simple and safe for initial deployment.
+    returns a summary of recent prompts and counts.
     """
     clean_phone = user_phone.replace("whatsapp:", "").replace("+", "").replace("-", "").replace(" ", "")
     # try Redis list, fallback to memory USER_STATE
@@ -184,29 +181,31 @@ def get_smart_suggestions(user_phone: str, n: int = 3) -> list:
     prefs = analyze_user_preferences(user_phone)
     base = prefs.get("recent_prompts", [])
     suggestions = []
-    for i, p in enumerate(base[:n]):
+    for p in base[:n]:
         suggestions.append(f"{p} — cinematic lighting, smooth motion")
-    # if not enough, add some generic examples
+        
     generic = [
         "A golden retriever playing in a park, cinematic lighting",
         "Astronaut floating in space, stars in the background, slow motion",
         "Ocean waves at sunset with seagulls flying"
     ]
+    gen_index = 0 
     while len(suggestions) < n:
-        suggestions.append(generic[len(suggestions) - len(base) % len(generic)])
-    return suggestions[:n]
+        suggestions.append(generic[gen_index % len(generic)])
+        gen_index += 1
+    return suggestions
 
 def generate_contextual_response(user_phone: str, prompt: str = None) -> str:
     """Only provide contextual responses for appropriate scenarios"""
+
     
-    # Don't provide contextual response for commands
     if prompt is None or prompt.startswith('/'):
         return None
+
     
-    # Only provide contextual response if user has some history
     prefs = analyze_user_preferences(user_phone)
     if prefs.get("prompt_count", 0) == 0:
-        return None  # No context to work with
+        return None  
     
     context = get_conversation_context(user_phone) or {}
     suggestions = get_smart_suggestions(user_phone, n=2)
@@ -220,7 +219,6 @@ def generate_contextual_response(user_phone: str, prompt: str = None) -> str:
     
     return "\n".join(lines) if lines else None
 
-# Export for other modules
 __all__ = [
     "VIDEO_GENERATION_STATUS",
     "store_job_data",

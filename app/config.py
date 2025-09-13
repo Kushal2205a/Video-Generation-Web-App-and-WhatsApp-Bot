@@ -4,13 +4,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ---------- Redis ----------
+
 redis_client = None
 try:
     import redis
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
     redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-    # attempt a ping (may raise if unreachable)
+
     try:
         redis_client.ping()
         print("✅ Redis connected")
@@ -21,7 +21,7 @@ except Exception as e:
     print(f"⚠️ redis library not available or failed to init: {e} — continuing with redis_client=None")
     redis_client = None
 
-# ---------- Twilio ----------
+
 twilio_client = None
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
@@ -38,13 +38,11 @@ except Exception as e:
     print(f"⚠️ Failed to initialize Twilio client: {e}")
     twilio_client = None
 
-# ---------- Other config values (optional) ----------
 VIDU_API_KEY = os.getenv("VIDU_API_KEY")
 VIDU_BASE_URL = os.getenv("VIDU_BASE_URL", "https://api.vidu.com")
 HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_TOKEN")
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000")
 
-# Export __all__ (optional, helps clarity)
 __all__ = [
     "redis_client",
     "twilio_client",
