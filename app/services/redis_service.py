@@ -113,7 +113,7 @@ def get_conversation_context(user_phone: str, key: Optional[str] = None):
 
 
 # Rate limiting 
-def is_user_rate_limited(user_phone: str, window_seconds: int = 30, max_calls: int = 2) -> bool:
+def is_user_rate_limited(user_phone: str, window_seconds: int = 60, max_calls: int = 6) -> bool:
     clean_phone = user_phone.replace("whatsapp:", "").replace("+", "").replace("-", "").replace(" ", "")
     now_ts = time.time()
     if redis_client:
