@@ -16,6 +16,8 @@ The **Video Generation Web App** and the **WhatsApp AI Video Generation Bot** en
 
 Both projects are built for **demonstration** and **production-ready** environments.
 
+**The website is not deployed at the moment due to hosting costs.**
+
 ---
 
 ## Features
@@ -24,7 +26,6 @@ Both projects are built for **demonstration** and **production-ready** environme
 - **Responsive Frontend** – Pure HTML/CSS/JS 
 - **Async FastAPI Backend** – Handles job creation, status polling, and video streaming  
 - **Job Queue & Tracking** – Real-time updates on video generation progress  
-- **Organized Video Storage** – Clean `/videos` directory for generated & fallback videos  
 - **Quota Fallback** – Serves a mock video seamlessly if API limits are hit  
 - **Deployment Ready** – Secure `.env`, compatible with Render, Railway, etc.  
 
@@ -33,11 +34,11 @@ Both projects are built for **demonstration** and **production-ready** environme
 - **Conversation Context System** – Stores chat history and user-specific requests with 7-day expiry and a 50-message cap  
 - **User Preference Analysis** – Learns user themes and suggests personalized prompts  
 - **Bot Commands:**  
-  - `/generate [prompt]` → Create AI-generated video  
-  - `/history` → View recent videos & statistics  
-  - `/credits` → Check remaining API credits  
-  - `/suggestions` → Get personalized video ideas  
-  - `/clear` → Reset conversation history  
+  - `/generate [prompt]` -> Create AI-generated video  
+  - `/history` -> View recent videos & statistics  
+  - `/credits` -> Check remaining API credits  
+  - `/suggestions` -> Get personalized video ideas  
+  - `/clear` -> Reset conversation history  
 - **Security & Stability:**  
   - Content filtering (profanity, leetspeak, length checks, repetition prevention)  
   - Redis-based rate limiting (10 messages/hour per user) with graceful fallback if Redis is unavailable  
@@ -54,20 +55,10 @@ Both projects are built for **demonstration** and **production-ready** environme
 ![Architecture for the Video Generation Whatsapp Bot](assets/Architecture.drawio.png)
 
 **Component Overview:**  
-- FastAPI Backend → Job management, webhook handling, video serving  
-- Redis → Context storage, rate limiting, job tracking  
-- Twilio WhatsApp API → Messaging & media handling  
-- Vidu API → Text-to-video generation pipeline
-
----
-
-## Model Choice
-
-- **Model Used:** `Vidu API`  
-- **Why this model?**  
-  - State-of-the-art text-to-video system tailored for short, conversational videos  
-  - Fast, scalable, and production-oriented API surface  
-  - Handles cinematic prompt enhancements and returns robust short videos
+- FastAPI Backend -> Job management, webhook handling, video serving  
+- Redis -> Context storage, rate limiting, job tracking  
+- Twilio WhatsApp API -> Messaging & media handling  
+- Vidu API -> Text-to-video generation pipeline
 
 ---
 
@@ -87,26 +78,6 @@ Both projects are built for **demonstration** and **production-ready** environme
 - **Webhook Endpoint:** `/webhook/whatsapp`  
 - **Bot Commands:** `/generate`, `/history`, `/credits`, `/suggestions`, `/clear`  
 - **Redis Keys:** Per-user isolation for job tracking, context, and rate limits
-
----
-
-## Environment Variables & Security
-
-Secrets are **never committed**. `.env` is excluded via `.gitignore`. Use `python-dotenv` locally; set env vars in your production dashboard.
-
-Example `.env` (example formatting — create this file in your project root):
-
-    VIDU_API_KEY=your_vidu_api_key
-    TWILIO_ACCOUNT_SID=your_account_sid
-    TWILIO_AUTH_TOKEN=your_auth_token
-    TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
-    REDIS_URL=redis://localhost:6379
-
-Security notes:
-- Do not commit `.env` to git.  
-- Use per-environment API keys (dev/staging/prod).  
-- Validate & filter all incoming prompts/messages.  
-- Rate-limit users and webhook callers.
 
 ---
 
@@ -165,7 +136,7 @@ Security notes:
 ## Deployment
 
 ### Web App
-- Push the repo to GitHub (exclude `.env`).
+- Push the repo to GitHub.
 - On Render / Railway:
   - Build step: `pip install -r requirements.txt`
   - Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
@@ -173,7 +144,7 @@ Security notes:
 - Ensure `/videos` directory is writable by the app.
 
 ### WhatsApp Bot
-- Host the FastAPI app on Railway / Render / a VPS with a public HTTPS endpoint.
+- Hosted the FastAPI app on Railway / Render / a VPS with a public HTTPS endpoint.
 - Configure Twilio to use your webhook endpoint for incoming messages.
 - Use Redis Cloud for context storage and rate limiting in production.
 - Monitor API usage and implement quota fallbacks (serve mock video if Vidu quota is exceeded).
@@ -189,8 +160,5 @@ Security notes:
 - **Frontend (Web App):** HTML, CSS, JavaScript (no frontend framework)  
 - **Deployment:** Railway, Render, or VPS
 
----
 
-## Credits
 
-Made by **Kushal Panchali**
